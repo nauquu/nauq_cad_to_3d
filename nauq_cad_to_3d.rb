@@ -777,7 +777,6 @@ module NAUQ
       end
     end
   end
-end
 
 # Alias for TT_CAD_TO_3D namespace compatibility
 TT_CAD_TO_3D = NAUQ::CadTo3D unless defined?(TT_CAD_TO_3D)
