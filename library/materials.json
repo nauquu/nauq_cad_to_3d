@@ -1,0 +1,14 @@
+{
+  "materials": {
+    "kimloaidengoaithat": {
+      "name": "kimloaidengoaithat",
+      "color": [35, 35, 38],
+      "alpha": 1.0
+    },
+    "kinhh6": {
+      "name": "kinhh6",
+      "color": [180, 220, 240],
+      "alpha": 0.45
+    }
+  }
+}

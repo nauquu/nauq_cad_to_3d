@@ -1,0 +1,7 @@
+*.rbz
+*.log
+*.tmp
+*.bak
+out/
+.DS_Store
+Thumbs.db

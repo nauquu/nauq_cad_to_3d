@@ -1,0 +1,193 @@
+# frozen_string_literal: true
+
+module NAUQ
+  module CadTo3D
+    # Generates 3D windows in NAUQ_WINDOWS group container
+    module WindowBuilder
+      class << self
+        # Procedurally generate a complete 3D window assembly
+        # @param options [Hash]
+        # @return [Sketchup::Group]
+        def generate(options = {})
+          model = Sketchup.active_model
+
+          width = options[:width] ? (options[:width].is_a?(Length) ? options[:width] : options[:width].to_f.mm) : 900.mm
+          height = options[:height] ? (options[:height].is_a?(Length) ? options[:height] : options[:height].to_f.mm) : 1200.mm
+          panel_count = [options[:panel_count] || 1, 1].max
+          x_offset = options[:x_offset] ? (options[:x_offset].is_a?(Length) ? options[:x_offset] : options[:x_offset].to_f.mm) : 0.mm
+          win_name = (options[:name] || "WINDOW_#{panel_count}P").to_s
+
+          parent = options[:parent] || model.active_entities
+          target_entities = parent.respond_to?(:entities) ? parent.entities : parent
+
+          layout = FrameBuilder.calculate_layout(width, height, options.merge(is_window: true, x_offset: x_offset))
+
+          active_width = layout[:active_width]
+          active_height = layout[:active_height]
+
+          leaf_width = active_width / panel_count.to_f
+          leaf_height = active_height
+
+          frame_mat = options[:frame_material] || (MaterialLoader.get_material(model, 'kimloaidengoaithat') rescue nil)
+          glass_mat = options[:glass_material] || (MaterialLoader.get_material(model, 'kinhh6') rescue nil)
+
+          win_assembly = target_entities.add_group
+          win_assembly.name = win_name
+
+          # 1. Build FRAME
+          FrameBuilder.build_frame(
+            win_assembly,
+            width,
+            height,
+            options.merge(material: frame_mat, is_window: true, x_offset: x_offset)
+          )
+
+          # 2. Get or create LEAF Definition
+          definition = LeafBuilder.get_or_create_leaf_definition(
+            model,
+            leaf_width,
+            leaf_height,
+            frame_mat,
+            'TT_WIN_LEAF'
+          )
+
+          # 3. Create LEAF Instances
+          panel_count.times do |index|
+            inst = LeafBuilder.create_leaf_instance(
+              win_assembly,
+              definition,
+              index,
+              leaf_width,
+              x_offset: layout[:active_x0],
+              frame_width: 0.mm,
+              material: frame_mat
+            )
+            inst.transform!(Geom::Transformation.translation(Geom::Vector3d.new(0, 0, layout[:active_z0])))
+          end
+
+          # 4. Build GLASS (Main Leaf Glass + All Fix Panel Glasses)
+          GlassBuilder.build_layout_glasses(
+            win_assembly,
+            layout,
+            glass_mat,
+            include_active: true
+          )
+
+          win_assembly
+        end
+
+        # Build all windows based on detected openings
+        # @param openings_data [Array<Hash>] list of window openings
+        # @param windows_group [Sketchup::Group, nil] NAUQ_WINDOWS group
+        # @param cad_group [Sketchup::Group, Sketchup::ComponentInstance, nil] source CAD item
+        def build_windows(openings_data, windows_group = nil, cad_group = nil)
+          win_openings = openings_data.select { |op| op[:type] == :window }
+          return if win_openings.empty?
+
+          model = Sketchup.active_model
+          cad_id = cad_group ? (cad_group.respond_to?(:persistent_id) ? cad_group.persistent_id.to_s : cad_group.object_id.to_s) : nil
+          floor_name = cad_group && cad_group.respond_to?(:name) && !cad_group.name.empty? ? cad_group.name : "Floor_#{cad_id || Time.now.to_i}"
+
+          model.start_operation('NAUQ Build 3D Windows', true)
+
+          # Erase previous windows created for this specific CAD drawing if any
+          if cad_id
+            existing_model = model.entities.grep(Sketchup::Group).select do |g|
+              g.valid? && (g.name == "WINDOWS_#{floor_name}" || (Attribute.get(g, 'source_cad_id') == cad_id && g.name.start_with?('WINDOWS_')))
+            end
+            existing_model.each { |g| g.erase! if g.valid? }
+
+            legacy_container = model.entities.grep(Sketchup::Group).find { |g| g.valid? && g.name == DWGReader::WINDOWS_GROUP_NAME }
+            if legacy_container
+              existing_sub = legacy_container.entities.grep(Sketchup::Group).select do |inst|
+                inst.valid? && Attribute.get(inst, 'source_cad_id') == cad_id
+              end
+              existing_sub.each { |inst| inst.erase! if inst.valid? }
+            end
+          end
+
+          # Create independent group for this floor's windows directly at model root
+          model.selection.clear rescue nil
+          windows_group = model.entities.add_group
+          windows_group.name = "WINDOWS_#{floor_name}"
+          Attribute.tag(windows_group, 'window_floor', source_cad_id: cad_id)
+
+          max_win_w_mm = Config.get(:window_max_width) || 900.0
+          frame_w = (Config.get(:frame_size) || 50.0).mm
+
+          built_count = 0
+          target_entities = windows_group.entities
+
+          win_openings.each do |op|
+            begin
+              w_mm = op[:width_mm] || 900.0
+              h_mm = op[:height_mm] || 1200.0
+              pos = op[:position] || Geom::Point3d.new(0, 0, 0)
+              dir = op[:direction]
+
+              w_len = w_mm.to_f.mm
+              h_len = h_mm.to_f.mm
+              active_w = [w_len - (2.0 * frame_w), 100.mm].max
+
+              has_transom = (Config.get(:glass_height) || 0.0) > 0
+              glass_h_mm = Config.get(:glass_height) || 350.0
+
+              z_off_mm = (op[:z_offset_mm] || Config.get(:window_offset) || 900.0).to_f
+              has_bottom_fix = z_off_mm < 200.0
+              fix_bot_h_mm = has_bottom_fix ? (Config.get(:fix_bottom_height) || 400.0).to_f : 0.0
+
+              panel_count = [(active_w.to_mm / max_win_w_mm).ceil, 1].max
+
+              # Window assembly group using unified generate
+              win_assembly = generate(
+                parent: target_entities,
+                name: "WINDOW_#{op[:id]}",
+                width: w_len,
+                height: h_len,
+                panel_count: panel_count,
+                has_fix_top: has_transom,
+                fix_top_height: glass_h_mm.to_f.mm,
+                has_fix_bottom: has_bottom_fix,
+                fix_bottom_height: fix_bot_h_mm.mm
+              )
+
+              # Move assembly to opening position and orientation (shifted by -half width on local X)
+              t_shift = Geom::Transformation.translation(Geom::Vector3d.new(-w_len / 2.0, 0, 0))
+              rad = dir && dir.valid? ? Math.atan2(dir.y, dir.x) : 0.0
+              t_rot = Geom::Transformation.rotation(Geom::Point3d.new(0, 0, 0), Geom::Vector3d.new(0, 0, 1), rad)
+              t_pos = Geom::Transformation.translation(pos)
+              win_assembly.transform!(t_pos * t_rot * t_shift)
+
+              # Set Attributes
+              Attribute.set(win_assembly, 'type', 'window', 'NAUQ_WINDOW')
+              Attribute.set(win_assembly, 'width', w_mm, 'NAUQ_WINDOW')
+              Attribute.set(win_assembly, 'height', h_mm, 'NAUQ_WINDOW')
+              Attribute.set(win_assembly, 'leaf_count', panel_count, 'NAUQ_WINDOW')
+              Attribute.set(win_assembly, 'z_offset', z_off_mm, 'NAUQ_WINDOW')
+              Attribute.tag(
+                win_assembly,
+                'window',
+                id: op[:id],
+                width: w_mm,
+                height: h_mm,
+                leaf_count: panel_count,
+                z_offset: z_off_mm,
+                has_fix_top: has_transom,
+                has_fix_bottom: has_bottom_fix,
+                fix_bottom_height: fix_bot_h_mm,
+                source_cad_id: cad_id
+              )
+
+              built_count += 1
+            rescue StandardError => e
+              Logger.error("Lỗi khi tạo cửa sổ #{op[:id]}: #{e.message}\n#{e.backtrace ? e.backtrace.first(6).join("\n") : ''}")
+            end
+          end
+
+          model.commit_operation
+          Logger.info("Đã tạo #{built_count} bộ Cửa sổ 3D hoàn chỉnh trong group 'NAUQ_WINDOWS'")
+        end
+      end
+    end
+  end
+end

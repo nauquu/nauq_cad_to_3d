@@ -1,0 +1,66 @@
+# CHANGELOG — NAUQ CAD TO 3D
+
+Toàn bộ lịch sử các phiên bản, các đợt tái cấu trúc kiến trúc (Refactoring) và sửa lỗi của plugin.
+
+---
+
+## [v1.9.0] - 2026-08-25 (Interactive 3D Snapshot & Framing Tool)
+### Added
+- **Interactive Viewport Framing & Crop Tool (`SnapshotCropTool`):**
+  - Khung cắt tương tác trực tiếp trên màn hình SketchUp với lưới bố cục 1/3 (Rule of Thirds) và viền mờ Cinematic Matte.
+  - Hỗ trợ rê chuột di chuyển (Move/Pan) vùng cắt, lăn chuột co giãn kích thước.
+  - Phím tắt nhanh chọn tỉ lệ khung hình: `1` (16:9), `2` (4:3), `3` (1:1), `4` (3:4), `5` (9:16), `6` (Toàn màn hình).
+  - Phím tắt `R` chuyển đổi độ phân giải: `2K QHD (2560px)`, `4K UHD (3840px)`, `Full HD (1920px)`.
+  - Phím `Enter` / Click đúp để xuất ảnh toàn cảnh siêu nét khử răng cưa antialias, cắt pixel hoàn hảo và copy trực tiếp vào Windows Clipboard.
+
+---
+
+## [v1.8.0] - 2026-08-24 (Stair Builder & Railings)
+### Added
+- **Parametric Stair Builder (`StairBuilder` & `StairDialog`):**
+  - Dựng cầu thang 3D chữ I, chữ L, chữ U chuẩn kết cấu và phong thủy (Sinh - Lão - Bệnh - Tử).
+  - Tích hợp lan can kính / inox / gỗ (`RailingBuilder`) tự động uốn theo chiếu nghỉ.
+
+---
+
+## [v1.7.0] - 2026-08-21 (Batch Resize Tool & Manual 2-Point Door)
+### Added
+- **Batch Resize Door/Window Dialog (`ResizeToolDialog`):**
+  - Quét chọn nhiều cửa trên mô hình để sửa kích thước Dài/Rộng/Cao hàng loạt mà không làm biến dạng profile nhôm.
+- **Manual 2-Point Door Placement Tool (`ManualDoorPlacementTool`):**
+  - Giữ phím `[Alt]` khi dùng công cụ Thêm Cửa để chuyển sang chế độ click 2 điểm thủ công.
+
+---
+
+## [v1.6.0] - 2026-08-20 (Hide Overlapping Edges Cleaner)
+### Added
+- **Hide Overlapping Wall Edges (`Core::GeometryHelper.hide_coplanar_overlap_edges`):**
+  - Tự động quét và ẩn toàn bộ các nét trùng lặp, nét giáp ranh giữa các khối tường, Group hoặc Component giáp mí.
+
+---
+
+## [v1.4.0] - 2026-08-18 (Interactive Tools & AutoCAD Direct Paste)
+### Added
+- **Direct 1-Click Paste from AutoCAD (`CADClipboard` & `[TẠO 3D]`):**
+  - Tự động nhận diện dữ liệu vừa `Ctrl + C` (`COPYCLIP`) trong AutoCAD để dựng 3D trong 1 click.
+- **Interactive WallFill Tool (`WallFillTool`):**
+  - Click vào mặt hốc tường để đùn lanh-tô và bậu cửa sổ tự động.
+- **Interactive Opening Door Tool (`OpeningDoorTool`):**
+  - Click vào hốc tường để đo $W, H, D$ và lắp cửa nhôm kính 3D chuẩn kích thước.
+
+---
+
+## [v1.3.0] - 2026-08-16 (Spec v1 Completed)
+### Added
+- **Top Concrete Slab (`NAUQ_SLAB`) & Beam Deduction:**
+  - Tự động trừ dầm 400mm và tạo khối sàn mái bê tông trên đỉnh tường.
+- **Parametric Window 3D Builder (`WindowBuilder`):**
+  - Dựng khung bao và cánh cửa sổ theo hệ Profile V20 FollowMe.
+
+---
+
+## [v1.2.0] - 2026-08-15 (Wall Face 2D Source of Truth)
+### Changed
+- Loại bỏ hoàn toàn phương pháp đục lỗ Boolean / WallCutter.
+- Sử dụng trực tiếp các mặt Face 2D từ layer `0-netcat` làm Source of Truth.
+- Base Wall và WallFill được extrude đồng thời trong 1 operation duy nhất.
