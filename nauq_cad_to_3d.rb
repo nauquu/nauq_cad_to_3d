@@ -11,7 +11,7 @@ module NAUQ
   module CadTo3D
     PLUGIN_ID = 'NAUQ_CAD_TO_3D' unless defined?(PLUGIN_ID)
     PLUGIN_NAME = 'NAUQ CAD to 3D' unless defined?(PLUGIN_NAME)
-    PLUGIN_VERSION = '1.9.1' unless defined?(PLUGIN_VERSION)
+    PLUGIN_VERSION = '1.9.2' unless defined?(PLUGIN_VERSION)
 
     # Function to load / reload all internal submodules
     class << self
@@ -85,8 +85,6 @@ module NAUQ
         end
 
         puts '[NAUQ CAD TO 3D] Đã nạp lại toàn bộ module thành công!'
-        @menus_registered = false
-        init_ui if defined?(UI) && respond_to?(:init_ui)
         true
       end
     end

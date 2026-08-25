@@ -47,9 +47,9 @@ module NAUQ
           built_count = 0
 
           door_openings.each do |op|
-            if op[:edge_left] && op[:edge_right]
-              e_l_len = op[:edge_left][0].distance(op[:edge_left][1]).to_mm
-              e_r_len = op[:edge_right][0].distance(op[:edge_right][1]).to_mm
+          if op[:edge_left] && op[:edge_right]
+              e_l_len = Geometry.inch_to_mm(op[:edge_left][0].distance(op[:edge_left][1]))
+              e_r_len = Geometry.inch_to_mm(op[:edge_right][0].distance(op[:edge_right][1]))
               if (e_l_len - e_r_len).abs > 100.0
                 Logger.warn("Bỏ qua tạo cửa #{op[:id]} do cạnh trái (#{e_l_len.round(1)}mm) và cạnh phải (#{e_r_len.round(1)}mm) lệch chiều dài quá 100mm.")
                 next

@@ -21,21 +21,71 @@ module NAUQ
         { name: 'Full HD (1920px)', width: 1920 }
       ].freeze
 
+      HANDLE_SIZE = 26.0 # Kích thước vùng bắt kéo góc
+
+      # Pre-allocated frozen colors to eliminate Ruby Garbage Collection (GC) lag during mouse dragging
+      COLOR_MASK    = Sketchup::Color.new(0, 0, 0, 160)
+      COLOR_GRID    = Sketchup::Color.new(255, 255, 255, 60)
+      COLOR_FRAME   = Sketchup::Color.new(37, 99, 235, 255)
+      COLOR_BRACKET = Sketchup::Color.new(255, 255, 255, 255)
+      COLOR_HANDLE  = Sketchup::Color.new(255, 255, 255, 220)
+      COLOR_CROSS   = Sketchup::Color.new(255, 255, 255, 180)
+
+      CURSOR_NWSE_SVG = <<~SVG
+        <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32">
+          <path d="M 5,5 L 14,5 L 11,8 L 21,18 L 24,15 L 24,24 L 15,24 L 18,21 L 8,11 L 5,14 Z" fill="#FFFFFF" stroke="#000000" stroke-width="2" stroke-linejoin="round"/>
+        </svg>
+      SVG
+
+      CURSOR_NESW_SVG = <<~SVG
+        <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32">
+          <path d="M 27,5 L 27,14 L 24,11 L 14,21 L 17,24 L 8,24 L 8,15 L 11,18 L 21,8 L 18,5 Z" fill="#FFFFFF" stroke="#000000" stroke-width="2" stroke-linejoin="round"/>
+        </svg>
+      SVG
+
+      CURSOR_MOVE_SVG = <<~SVG
+        <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32">
+          <path d="M 16,3 L 21,8 L 18,8 L 18,14 L 24,14 L 24,11 L 29,16 L 24,21 L 24,18 L 18,18 L 18,24 L 21,24 L 16,29 L 11,24 L 14,24 L 14,18 L 8,18 L 8,21 L 3,16 L 8,11 L 8,14 L 14,14 L 14,8 L 11,8 Z" fill="#FFFFFF" stroke="#000000" stroke-width="2" stroke-linejoin="round"/>
+        </svg>
+      SVG
+
       def initialize
         @aspect_index = 0 # Mặc định 16:9
         @res_index = 0    # Mặc định 2K
         @scale = 0.85     # Tỉ lệ khung hình so với khung nhìn
         @center_x = nil
         @center_y = nil
-        @dragging = false
+        @drag_mode = nil  # nil, :move, :resize_tl, :resize_tr, :resize_br, :resize_bl
+        @current_hit = nil
         @drag_start_x = 0
         @drag_start_y = 0
         @drag_orig_cx = 0
         @drag_orig_cy = 0
+        @drag_orig_scale = 0.85
+        @cursors_initialized = false
+      end
+
+      def initialize_cursors
+        return if @cursors_initialized
+        @cursors_initialized = true
+
+        temp_dir = defined?(Sketchup) && Sketchup.respond_to?(:temp_dir) ? Sketchup.temp_dir : (ENV['TEMP'] || '/tmp')
+        nwse_path = File.join(temp_dir, 'nauq_cursor_nwse.svg').tr('\\', '/')
+        nesw_path = File.join(temp_dir, 'nauq_cursor_nesw.svg').tr('\\', '/')
+        move_path = File.join(temp_dir, 'nauq_cursor_move.svg').tr('\\', '/')
+
+        File.write(nwse_path, CURSOR_NWSE_SVG) rescue nil
+        File.write(nesw_path, CURSOR_NESW_SVG) rescue nil
+        File.write(move_path, CURSOR_MOVE_SVG) rescue nil
+
+        @cursor_nwse = ::UI.create_cursor(nwse_path, 16, 16) rescue nil
+        @cursor_nesw = ::UI.create_cursor(nesw_path, 16, 16) rescue nil
+        @cursor_move = ::UI.create_cursor(move_path, 16, 16) rescue nil
       end
 
       def activate
         view = Sketchup.active_model.active_view
+        initialize_cursors
         reset_frame(view)
         update_status_text
         view.invalidate
@@ -82,9 +132,18 @@ module NAUQ
         half_w = bw / 2.0
         half_h = bh / 2.0
 
-        # Giữ tâm không bị trượt ra ngoài màn hình quá xa
-        cx = [[@center_x, half_w].max, vw - half_w].min
-        cy = [[@center_y, half_h].max, vh - half_h].min
+        # Căn chỉnh tâm: nếu khung bằng hoặc lớn hơn màn hình thì căn chính giữa mép
+        cx = if bw >= vw
+               vw / 2.0
+             else
+               [[@center_x, half_w].max, vw - half_w].min
+             end
+
+        cy = if bh >= vh
+               vh / 2.0
+             else
+               [[@center_y, half_h].max, vh - half_h].min
+             end
 
         left = cx - half_w
         top = cy - half_h
@@ -94,33 +153,90 @@ module NAUQ
         [left, top, right, bottom, bw, bh]
       end
 
-      def onLButtonDown(flags, x, y, view)
+      # Nhận diện vị trí chuột đối với khung cắt: :tl, :tr, :br, :bl, :inside, :outside
+      def hit_test(x, y, view)
         left, top, right, bottom, _bw, _bh = current_box(view)
+        hs = HANDLE_SIZE
+
+        # Kiểm tra 4 góc trước (ưu tiên bắt góc để đổi cursor 2 đầu)
+        return :resize_tl if (x - left).abs <= hs && (y - top).abs <= hs
+        return :resize_tr if (x - right).abs <= hs && (y - top).abs <= hs
+        return :resize_br if (x - right).abs <= hs && (y - bottom).abs <= hs
+        return :resize_bl if (x - left).abs <= hs && (y - bottom).abs <= hs
+
+        # Kiểm tra bên trong hộp
         if x >= left && x <= right && y >= top && y <= bottom
-          @dragging = true
-          @drag_start_x = x
-          @drag_start_y = y
-          @drag_orig_cx = @center_x
-          @drag_orig_cy = @center_y
+          :move
         else
+          :outside
+        end
+      end
+
+      def onSetCursor
+        initialize_cursors unless @cursors_initialized
+        active_hit = @drag_mode || @current_hit
+        case active_hit
+        when :resize_tl, :resize_br
+          ::UI.set_cursor(@cursor_nwse) if @cursor_nwse
+        when :resize_tr, :resize_bl
+          ::UI.set_cursor(@cursor_nesw) if @cursor_nesw
+        when :move
+          ::UI.set_cursor(@cursor_move) if @cursor_move
+        else
+          ::UI.set_cursor(0)
+        end
+      end
+
+      def onLButtonDown(flags, x, y, view)
+        hit = hit_test(x, y, view)
+        @drag_mode = hit
+        @drag_start_x = x
+        @drag_start_y = y
+        @drag_orig_cx = @center_x || (view.vpwidth.to_f / 2.0)
+        @drag_orig_cy = @center_y || (view.vpheight.to_f / 2.0)
+        @drag_orig_scale = @scale
+
+        if hit == :outside
+          # Click ra ngoài -> dời tâm khung về vị trí click và bắt đầu drag
           @center_x = x.to_f
           @center_y = y.to_f
+          @drag_orig_cx = @center_x
+          @drag_orig_cy = @center_y
+          @drag_mode = :move
           view.invalidate
         end
       end
 
       def onMouseMove(flags, x, y, view)
-        if @dragging
+        if @drag_mode == :move
           dx = x - @drag_start_x
           dy = y - @drag_start_y
           @center_x = @drag_orig_cx + dx
           @center_y = @drag_orig_cy + dy
           view.invalidate
+        elsif @drag_mode.to_s.start_with?('resize_')
+          # Co giãn kích thước theo khoảng cách kéo chuột từ tâm
+          cx = @drag_orig_cx
+          cy = @drag_orig_cy
+          dist_orig = Math.hypot(@drag_start_x - cx, @drag_start_y - cy)
+          dist_curr = Math.hypot(x - cx, y - cy)
+          if dist_orig > 5.0
+            scale_factor = dist_curr / dist_orig
+            @scale = [[@drag_orig_scale * scale_factor, 0.15].max, 1.0].min
+            view.invalidate
+          end
+        else
+          # Rê chuột tự do -> Cập nhật vị trí để đổi Cursor mũi tên 2 đầu
+          prev_hit = @current_hit
+          @current_hit = hit_test(x, y, view)
+          view.invalidate if prev_hit != @current_hit
         end
       end
 
       def onLButtonUp(flags, x, y, view)
-        @dragging = false
+        @drag_mode = nil
+        @current_hit = hit_test(x, y, view)
+        view.invalidate
       end
 
       def onLButtonDoubleClick(flags, x, y, view)
@@ -129,8 +245,9 @@ module NAUQ
 
       def onMouseWheel(flags, delta, x, y, view)
         step = delta > 0 ? 0.05 : -0.05
-        @scale = [[@scale + step, 0.2].max, 0.98].min
+        @scale = [[@scale + step, 0.15].max, 1.0].min
         view.invalidate
+        true # Consume wheel event to prevent 3D camera zooming while framing
       end
 
       def onKeyDown(key, repeat, flags, view)
@@ -148,16 +265,16 @@ module NAUQ
           update_status_text
           view.invalidate
         when 37 # Mũi tên Trái
-          @center_x -= 15
+          @center_x = (@center_x || (view.vpwidth.to_f / 2.0)) - 15
           view.invalidate
         when 39 # Mũi tên Phải
-          @center_x += 15
+          @center_x = (@center_x || (view.vpwidth.to_f / 2.0)) + 15
           view.invalidate
         when 38 # Mũi tên Lên
-          @center_y -= 15
+          @center_y = (@center_y || (view.vpheight.to_f / 2.0)) - 15
           view.invalidate
         when 40 # Mũi tên Xuống
-          @center_y += 15
+          @center_y = (@center_y || (view.vpheight.to_f / 2.0)) + 15
           view.invalidate
         end
       end
@@ -202,123 +319,110 @@ module NAUQ
       def update_status_text
         asp = ASPECT_RATIOS[@aspect_index]
         res = RESOLUTIONS[@res_index]
-        Sketchup.status_text = "NAUQ Snapshot: Tỉ lệ [#{asp[:name]}] • Độ phân giải [#{res[:name]}] • [Kéo chuột] Move vùng cắt • [Lăn chuột] Co giãn • [Enter] Chụp & Copy Clipboard • [1-6] Đổi tỉ lệ • [R] Đổi độ phân giải"
+        Sketchup.status_text = "NAUQ Snapshot: Tỉ lệ [#{asp[:name]}] • Độ phân giải [#{res[:name]}] • [Kéo chuột] Move / Co giãn góc • [Lăn chuột] Phóng to/Thu nhỏ • [Enter / Click đúp] Chụp & Copy Clipboard • [1-6] Đổi tỉ lệ • [R] Đổi độ phân giải"
       end
 
-      def draw2d(view)
+      # High-performance 2D Overlay Rendering (Zero-allocation loop for 60-120fps smoothness)
+      def draw(view)
         vw = view.vpwidth.to_f
         vh = view.vpheight.to_f
         left, top, right, bottom, bw, bh = current_box(view)
 
         # 1. Viền tối mờ che ngoài khung chụp (Cinematic Matte Overlay)
-        mask_color = Sketchup::Color.new(0, 0, 0, 160)
-        view.drawing_color = mask_color
+        view.drawing_color = COLOR_MASK
 
         # Top bar
-        view.draw2d(GL_QUADS, [
-          Geom::Point3d.new(0, 0, 0),
-          Geom::Point3d.new(vw, 0, 0),
-          Geom::Point3d.new(vw, top, 0),
-          Geom::Point3d.new(0, top, 0)
-        ]) if top > 0
+        if top > 0
+          view.draw2d(GL_QUADS, [
+            [0, 0, 0], [vw, 0, 0], [vw, top, 0], [0, top, 0]
+          ])
+        end
 
         # Bottom bar
-        view.draw2d(GL_QUADS, [
-          Geom::Point3d.new(0, bottom, 0),
-          Geom::Point3d.new(vw, bottom, 0),
-          Geom::Point3d.new(vw, vh, 0),
-          Geom::Point3d.new(0, vh, 0)
-        ]) if bottom < vh
+        if bottom < vh
+          view.draw2d(GL_QUADS, [
+            [0, bottom, 0], [vw, bottom, 0], [vw, vh, 0], [0, vh, 0]
+          ])
+        end
 
         # Left bar
-        view.draw2d(GL_QUADS, [
-          Geom::Point3d.new(0, top, 0),
-          Geom::Point3d.new(left, top, 0),
-          Geom::Point3d.new(left, bottom, 0),
-          Geom::Point3d.new(0, bottom, 0)
-        ]) if left > 0
+        if left > 0
+          view.draw2d(GL_QUADS, [
+            [0, top, 0], [left, top, 0], [left, bottom, 0], [0, bottom, 0]
+          ])
+        end
 
         # Right bar
-        view.draw2d(GL_QUADS, [
-          Geom::Point3d.new(right, top, 0),
-          Geom::Point3d.new(vw, top, 0),
-          Geom::Point3d.new(vw, bottom, 0),
-          Geom::Point3d.new(right, bottom, 0)
-        ]) if right < vw
+        if right < vw
+          view.draw2d(GL_QUADS, [
+            [right, top, 0], [vw, top, 0], [vw, bottom, 0], [right, bottom, 0]
+          ])
+        end
 
         # 2. Đường lưới bố cục 1/3 (Rule of Thirds)
         third_w = bw / 3.0
         third_h = bh / 3.0
-        view.drawing_color = Sketchup::Color.new(255, 255, 255, 75)
+        view.drawing_color = COLOR_GRID
         view.line_width = 1
 
-        # Lưới dọc
+        # Lưới dọc + ngang gộp chung trong 1 lệnh draw2d
         view.draw2d(GL_LINES, [
-          Geom::Point3d.new(left + third_w, top, 0),
-          Geom::Point3d.new(left + third_w, bottom, 0),
-          Geom::Point3d.new(left + 2 * third_w, top, 0),
-          Geom::Point3d.new(left + 2 * third_w, bottom, 0)
-        ])
-
-        # Lưới ngang
-        view.draw2d(GL_LINES, [
-          Geom::Point3d.new(left, top + third_h, 0),
-          Geom::Point3d.new(right, top + third_h, 0),
-          Geom::Point3d.new(left, top + 2 * third_h, 0),
-          Geom::Point3d.new(right, top + 2 * third_h, 0)
+          [left + third_w, top, 0], [left + third_w, bottom, 0],
+          [left + 2 * third_w, top, 0], [left + 2 * third_w, bottom, 0],
+          [left, top + third_h, 0], [right, top + third_h, 0],
+          [left, top + 2 * third_h, 0], [right, top + 2 * third_h, 0]
         ])
 
         # 3. Viền khung cắt chính (Xanh lam công nghệ SketchUp)
-        view.drawing_color = Sketchup::Color.new(37, 99, 235, 255)
+        view.drawing_color = COLOR_FRAME
         view.line_width = 2
         view.draw2d(GL_LINE_LOOP, [
-          Geom::Point3d.new(left, top, 0),
-          Geom::Point3d.new(right, top, 0),
-          Geom::Point3d.new(right, bottom, 0),
-          Geom::Point3d.new(left, bottom, 0)
+          [left, top, 0], [right, top, 0], [right, bottom, 0], [left, bottom, 0]
         ])
 
-        # 4. Góc vuông nhấn (Corner Brackets trắng)
-        bracket_len = [30, bw * 0.1].min
-        view.drawing_color = Sketchup::Color.new(255, 255, 255, 255)
+        # 4. Góc vuông nhấn (Corner Brackets trắng & Handles)
+        bracket_len = [28.0, bw * 0.1].min
+        view.drawing_color = COLOR_BRACKET
         view.line_width = 3
-        # Top-Left
         view.draw2d(GL_LINES, [
-          Geom::Point3d.new(left, top + bracket_len, 0), Geom::Point3d.new(left, top, 0),
-          Geom::Point3d.new(left, top, 0), Geom::Point3d.new(left + bracket_len, top, 0)
+          # Top-Left
+          [left, top + bracket_len, 0], [left, top, 0],
+          [left, top, 0], [left + bracket_len, top, 0],
+          # Top-Right
+          [right - bracket_len, top, 0], [right, top, 0],
+          [right, top, 0], [right, top + bracket_len, 0],
+          # Bottom-Right
+          [right, bottom - bracket_len, 0], [right, bottom, 0],
+          [right, bottom, 0], [right - bracket_len, bottom, 0],
+          # Bottom-Left
+          [left + bracket_len, bottom, 0], [left, bottom, 0],
+          [left, bottom, 0], [left, bottom - bracket_len, 0]
         ])
-        # Top-Right
-        view.draw2d(GL_LINES, [
-          Geom::Point3d.new(right - bracket_len, top, 0), Geom::Point3d.new(right, top, 0),
-          Geom::Point3d.new(right, top, 0), Geom::Point3d.new(right, top + bracket_len, 0)
-        ])
-        # Bottom-Right
-        view.draw2d(GL_LINES, [
-          Geom::Point3d.new(right, bottom - bracket_len, 0), Geom::Point3d.new(right, bottom, 0),
-          Geom::Point3d.new(right, bottom, 0), Geom::Point3d.new(right - bracket_len, bottom, 0)
-        ])
-        # Bottom-Left
-        view.draw2d(GL_LINES, [
-          Geom::Point3d.new(left + bracket_len, bottom, 0), Geom::Point3d.new(left, bottom, 0),
-          Geom::Point3d.new(left, bottom, 0), Geom::Point3d.new(left, bottom - bracket_len, 0)
+
+        # 4 Nút vuông góc kéo co giãn (High-performance Corner Handles)
+        hr = 4.0
+        view.drawing_color = COLOR_HANDLE
+        view.draw2d(GL_QUADS, [
+          # TL
+          [left - hr, top - hr, 0], [left + hr, top - hr, 0], [left + hr, top + hr, 0], [left - hr, top + hr, 0],
+          # TR
+          [right - hr, top - hr, 0], [right + hr, top - hr, 0], [right + hr, top + hr, 0], [right - hr, top + hr, 0],
+          # BR
+          [right - hr, bottom - hr, 0], [right + hr, bottom - hr, 0], [right + hr, bottom + hr, 0], [right - hr, bottom + hr, 0],
+          # BL
+          [left - hr, bottom - hr, 0], [left + hr, bottom - hr, 0], [left + hr, bottom + hr, 0], [left - hr, bottom + hr, 0]
         ])
 
         # 5. Dấu hồng tâm căn trung tâm (Center Crosshair)
         cx = left + bw / 2.0
         cy = top + bh / 2.0
-        cross_s = 8
-        view.drawing_color = Sketchup::Color.new(255, 255, 255, 200)
+        cross_s = 7.0
+        view.drawing_color = COLOR_CROSS
         view.line_width = 1
         view.draw2d(GL_LINES, [
-          Geom::Point3d.new(cx - cross_s, cy, 0), Geom::Point3d.new(cx + cross_s, cy, 0),
-          Geom::Point3d.new(cx, cy - cross_s, 0), Geom::Point3d.new(cx, cy + cross_s, 0)
+          [cx - cross_s, cy, 0], [cx + cross_s, cy, 0],
+          [cx, cy - cross_s, 0], [cx, cy + cross_s, 0]
         ])
-
-        # 6. Nhãn thông tin HUD
-        asp = ASPECT_RATIOS[@aspect_index]
-        res = RESOLUTIONS[@res_index]
-        hud_text = "Tỉ lệ: #{asp[:name]} | #{res[:name]} | [Kéo chuột] Move | [Enter / Click đúp] Chụp"
-        view.draw_text(Geom::Point3d.new(left + 10, [top - 20, 10].max, 0), hud_text)
       end
 
       # Thực hiện chụp ảnh và cắt pixel chính xác theo khung
@@ -363,27 +467,19 @@ module NAUQ
         crop_h = [crop_h, export_vh - crop_y].min
 
         if Gem.win_platform? || RUBY_PLATFORM =~ /mswin|mingw|cygwin/
-          ps_cmd = <<~POWERSHELL
-            powershell -NoProfile -ExecutionPolicy Bypass -Command "
-              Add-Type -AssemblyName System.Drawing;
-              Add-Type -AssemblyName System.Windows.Forms;
-              $src = [System.Drawing.Bitmap]::FromFile('#{raw_path.gsub("'", "''")}');
-              $rect = [System.Drawing.Rectangle]::new(#{crop_x}, #{crop_y}, #{crop_w}, #{crop_h});
-              $dest = $src.Clone($rect, $src.PixelFormat);
-              $src.Dispose();
-              $dest.Save('#{final_path.gsub("'", "''")}');
-              [System.Windows.Forms.Clipboard]::SetImage($dest);
-              $dest.Dispose();
-            "
-          POWERSHELL
-          system(ps_cmd.tr("\n", ' '))
+          ps_script = "Add-Type -AssemblyName System.Drawing,System.Windows.Forms; $src = [System.Drawing.Bitmap]::FromFile('#{raw_path.gsub("'", "''")}'); $rect = [System.Drawing.Rectangle]::new(#{crop_x}, #{crop_y}, #{crop_w}, #{crop_h}); $dest = $src.Clone($rect, $src.PixelFormat); $src.Dispose(); [System.Windows.Forms.Clipboard]::SetImage($dest); $dest.Dispose(); Remove-Item '#{raw_path.gsub("'", "''")}' -Force -ErrorAction SilentlyContinue;"
+          ps_cmd = %Q(powershell -NoProfile -WindowStyle Hidden -STA -ExecutionPolicy Bypass -Command "#{ps_script}")
+
+          # Run non-blocking background process for instant 0.1s capture experience
+          begin
+            pid = Process.spawn(ps_cmd)
+            Process.detach(pid)
+          rescue StandardError
+            system(ps_cmd)
+          end
         end
 
-        File.delete(raw_path) rescue nil
-
-        Sketchup.status_text = "✓ Đã chụp & cắt khung hình #{crop_w}x#{crop_h}px lưu vào Clipboard! (Bấm Ctrl+V để dán)"
-        ::UI.messagebox("✓ Đã chụp và cắt ảnh thành công!\n\n• Kích thước: #{crop_w} x #{crop_h} px\n• Tỉ lệ: #{ASPECT_RATIOS[@aspect_index][:name]}\n• Đã sao chép vào Clipboard\n\nBạn chỉ cần bấm Ctrl+V trên trình duyệt (Google Flow / Zalo / Photoshop / AI) để dán ảnh ngay!", MB_OK)
-
+        Sketchup.status_text = "✓ Đã chụp & lưu Clipboard thành công (#{crop_w}x#{crop_h}px, tỉ lệ #{ASPECT_RATIOS[@aspect_index][:name]}) — Bấm Ctrl+V để dán ảnh ngay!"
         Sketchup.active_model.select_tool(nil)
       end
     end

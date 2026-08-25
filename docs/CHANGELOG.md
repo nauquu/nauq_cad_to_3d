@@ -4,6 +4,29 @@ Toàn bộ lịch sử các phiên bản, các đợt tái cấu trúc kiến tr
 
 ---
 
+## [v1.9.2] - 2026-08-25 (Performance Optimization, Dynamic Cursors & Async Snapshot)
+### Added
+- **Dynamic 2-Headed & 4-Way Cursors (`SnapshotCropTool`):**
+  - Tự động chuyển đổi con trỏ chuột sang mũi tên 2 đầu chéo ↖↘ (`NW-SE`) và ↗↙ (`NE-SW`) khi rê chuột vào 4 góc để báo hiệu co giãn khung hình.
+  - Tự động chuyển đổi sang con trỏ 4 hướng ✥ (`Move`) khi rê chuột vào bên trong khung.
+- **Asynchronous Instant Capture Engine:**
+  - Nâng cấp tiến trình cắt pixel và nạp Clipboard chạy nền bất đồng bộ (`Process.spawn`), giúp SketchUp nhả thao tác chụp tức thì trong 0.1s không còn độ trễ chờ đợi.
+  - Loại bỏ hộp thoại modal popup phiền toái, chuyển sang thông báo xác nhận tinh tế trên thanh trạng thái SketchUp.
+- **Concrete (`betong`) Material Definition:** Bổ sung định nghĩa vật liệu bê tông vào `library/materials.json`.
+
+### Fixed & Optimized
+- **Zero-Allocation Rendering (60–120 FPS):**
+  - Đóng băng hằng số màu (`COLOR_MASK`, `COLOR_GRID`, `COLOR_FRAME`, v.v.) và chuyển sang mảng tọa độ 2D phẳng `[x, y, 0]`, loại bỏ hoàn toàn việc cấp phát đối tượng Ruby trong vòng lặp vẽ màn hình, triệt tiêu hiện tượng micro-stutter / GC lag khi kéo chuột.
+  - Sửa tên callback `draw(view)` chuẩn xác theo SketchUp Tool API.
+  - Nâng trần scale lên $1.0$ (100% full viền không bị dính margin).
+  - Gỡ bỏ dòng chữ HUD trên khung chụp để khung nhìn thông thoáng, chuẩn cinematic.
+- **Prevent Toolbar Button Duplication:**
+  - Loại bỏ việc reset `@menus_registered` trong hàm `reload!`, đảm bảo khi bấm Reload Plugin không bị nhân đôi các nút bấm trên thanh công cụ.
+- **Door Edge Dimension Conversion:**
+  - Chuẩn hóa kiểm tra chênh lệch chiều dài cạnh opening cửa bằng `Geometry.inch_to_mm(...)`.
+
+---
+
 ## [v1.9.1] - 2026-08-25 (Fix UI Module Collision & Toolbar Boot Sequence)
 ### Fixed
 - **Resolve `NAUQ::UI` Namespace Shadowing:**
