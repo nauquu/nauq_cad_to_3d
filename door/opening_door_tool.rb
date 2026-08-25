@@ -3,6 +3,7 @@
 module NAUQ
   module CadTo3D
     # Interactive Tool to automatically detect wall openings or manually place 3D Doors & Windows via 2 Diagonal Opposite Corners (Toggle with Alt)
+    # Positions door/window frame flush with exterior face of the opening.
     class OpeningDoorTool
       GEOMETRY_TOLERANCE = 0.001 unless const_defined?(:GEOMETRY_TOLERANCE)
       MIN_OPENING_WIDTH_MM = 300.0 unless const_defined?(:MIN_OPENING_WIDTH_MM)
@@ -22,6 +23,8 @@ module NAUQ
         fix_glass
       ].freeze
 
+      COLOR_LINE = Sketchup::Color.new(37, 99, 235, 220)
+
       def initialize
         @type_index = 0 # 0 = :auto
         @flipped = false
@@ -31,10 +34,7 @@ module NAUQ
         @input_point_1 = nil
         @pt1 = nil
         @pt2 = nil
-
-        @current_opening = nil
         @current_manual_opening = nil
-        @preview_bbox = nil
       end
 
       def activate
@@ -48,8 +48,6 @@ module NAUQ
       end
 
       def deactivate(view)
-        @preview_bbox = nil
-        @current_opening = nil
         @current_manual_opening = nil
         @pt1 = nil
         @pt2 = nil
@@ -58,15 +56,15 @@ module NAUQ
 
       def update_status_text
         type_name = current_type_label
-        flip_str = @flipped ? ' [Đảo mặt: BẬT]' : ''
+        flip_str = @flipped ? ' [Mặt trong]' : ' [Mặt ngoài]'
         if @manual_mode
           if @pt1.nil?
-            Sketchup.status_text = "[NAUQ VẼ CỬA THỦ CÔNG (2 GÓC CHÉO) - #{type_name}#{flip_str}] Click Góc 1 (Chân cửa) | [Alt]: Chuyển sang Tự Động | [TAB]: Đổi kiểu | [Ctrl]: Đảo chiều"
+            Sketchup.status_text = "[NAUQ VẼ CỬA THỦ CÔNG - #{type_name}#{flip_str}] Click Góc 1 (Chân cửa) | [Alt]: Tự Động | [TAB / Chuột phải]: Đổi kiểu | [Ctrl]: Đảo mặt"
           else
-            Sketchup.status_text = "[NAUQ VẼ CỬA THỦ CÔNG (2 GÓC CHÉO) - #{type_name}#{flip_str}] Click Góc 2 (Góc chéo đối diện) | [ESC]: Hủy điểm 1 | [Alt]: Chuyển Tự Động | [TAB]: Đổi kiểu"
+            Sketchup.status_text = "[NAUQ VẼ CỬA THỦ CÔNG - #{type_name}#{flip_str}] Click Góc 2 (Góc chéo đối diện) | [ESC]: Hủy điểm 1 | [Alt]: Tự Động | [TAB]: Đổi kiểu"
           end
         else
-          Sketchup.status_text = "[NAUQ THÊM CỬA TỰ ĐỘNG - #{type_name}#{flip_str}] Rê chuột & Click vào hốc tường | [Alt]: Chuyển sang Vẽ Thủ Công (2 Góc Chéo) | [TAB]: Đổi kiểu | [Ctrl]: Đảo chiều"
+          Sketchup.status_text = "[NAUQ THÊM CỬA - #{type_name}#{flip_str}] Click vào hốc tường | [TAB / Chuột phải]: Đổi kiểu cửa | [Ctrl]: Đảo mặt | [Alt]: Vẽ Thủ Công"
         end
       end
 
@@ -76,11 +74,11 @@ module NAUQ
         when :door_1 then 'Cửa đi 1 cánh'
         when :door_2 then 'Cửa đi 2 cánh'
         when :door_4 then 'Cửa đi 4 cánh'
-        when :door_sliding then 'Cửa đi lùa (trượt)'
+        when :door_sliding then 'Cửa đi lùa (trượt 2 cánh)'
         when :window_1 then 'Cửa sổ 1 cánh'
         when :window_2 then 'Cửa sổ 2 cánh'
         when :window_4 then 'Cửa sổ 4 cánh'
-        when :window_sliding then 'Cửa sổ lùa (trượt)'
+        when :window_sliding then 'Cửa sổ lùa (trượt 2 cánh)'
         when :fix_glass then 'Vách kính cố định'
         end
       end
@@ -89,33 +87,15 @@ module NAUQ
         if @manual_mode
           if @pt1.nil?
             @input_point.pick(view, x, y)
-            @preview_bbox = nil
           else
             @input_point.pick(view, x, y, @input_point_1)
             @pt2 = @input_point.position
-            update_manual_preview
+            update_manual_opening
           end
         else
           @input_point.pick(view, x, y)
-          context = pick_context(@input_point, view, x, y)
-
-          @current_opening = nil
-          @preview_bbox = nil
-
-          if context
-            opening = detect_opening_from_context(context)
-            if opening
-              @current_opening = opening
-              @preview_bbox = calculate_preview_geometry(opening)
-            end
-          end
         end
 
-        view.invalidate
-      rescue StandardError => e
-        @current_opening = nil
-        @current_manual_opening = nil
-        @preview_bbox = nil
         view.invalidate
       end
 
@@ -123,76 +103,72 @@ module NAUQ
         # Draw active input point inference
         @input_point.draw(view) if @input_point&.valid?
 
-        # Draw manual mode indicators
-        if @manual_mode
-          if @pt1
-            view.draw_points([@pt1], 10, 1, Sketchup::Color.new(37, 99, 235)) # Blue start corner
-            if @pt2
-              view.drawing_color = Sketchup::Color.new(37, 99, 235, 200)
-              view.line_width = 2
-              view.draw(GL_LINES, [@pt1, @pt2])
+        # Draw manual mode 2-point drag line if in manual mode
+        return unless @manual_mode && @pt1
 
-              w_mm = (@current_manual_opening ? @current_manual_opening[:width_mm] : @pt1.distance(@pt2).to_mm).round(0)
-              h_mm = (@current_manual_opening ? @current_manual_opening[:height_mm] : 2200.0).round(0)
-              mid_pt = Geom::Point3d.new((@pt1.x + @pt2.x) * 0.5, (@pt1.y + @pt2.y) * 0.5, ([@pt1.z, @pt2.z].max) + 60.mm)
-              view.draw_text(mid_pt, "Rộng: #{w_mm} mm x Cao: #{h_mm} mm", color: Sketchup::Color.new(30, 41, 59))
-            end
-          end
-        end
-
-        return unless @preview_bbox && @preview_bbox[:corners]
-
-        corners = @preview_bbox[:corners]
-        is_win = @preview_bbox[:is_window]
-
-        # Colors: Blue for Door, Emerald/Teal for Window
-        fill_color = if is_win
-                       Sketchup::Color.new(16, 185, 129, 85)
-                     else
-                       Sketchup::Color.new(59, 130, 246, 85)
-                     end
-
-        edge_color = if is_win
-                       Sketchup::Color.new(5, 150, 105, 255)
-                     else
-                       Sketchup::Color.new(37, 99, 235, 255)
-                     end
-
-        # Draw semi-transparent bounding faces
-        faces_indices = [
-          [0, 1, 2, 3], # Bottom
-          [4, 5, 6, 7], # Top
-          [0, 1, 5, 4], # Front
-          [1, 2, 6, 5], # Right
-          [2, 3, 7, 6], # Back
-          [3, 0, 4, 7]  # Left
-        ]
-
-        view.drawing_color = fill_color
-        faces_indices.each do |quad|
-          pts = quad.map { |i| corners[i] }
-          view.draw(GL_QUADS, pts)
-        end
-
-        # Draw crisp outline edges
-        view.drawing_color = edge_color
-        view.line_width = 2
-        edges_indices = [
-          [0, 1], [1, 2], [2, 3], [3, 0],
-          [4, 5], [5, 6], [6, 7], [7, 4],
-          [0, 4], [1, 5], [2, 6], [3, 7]
-        ]
-        edges_indices.each do |e|
-          view.draw(GL_LINES, [corners[e[0]], corners[e[1]]])
-        end
-
-        # Draw center icon / panel division lines
-        if @preview_bbox[:division_lines]
-          view.drawing_color = Sketchup::Color.new(245, 158, 11, 255)
+        view.draw_points([@pt1], 8, 1, COLOR_LINE)
+        if @pt2
+          view.drawing_color = COLOR_LINE
           view.line_width = 2
-          @preview_bbox[:division_lines].each do |line|
-            view.draw(GL_LINES, line)
+          view.draw(GL_LINES, [@pt1, @pt2])
+        end
+      end
+
+      # Right-Click Context Menu for instant style selection
+      def getMenu(menu, _flags, x, y, view)
+        menu.add_item('Đặt Cửa Tại Đây (Click)') do
+          if @manual_mode && @pt1 && @pt2
+            handle_manual_click(view, x, y)
+          else
+            handle_auto_click(view, x, y)
           end
+        end
+        menu.add_separator
+
+        style_sub = menu.add_submenu('Kiểu Cửa (Door & Window Style)')
+        ITEM_TYPES.each_with_index do |type, idx|
+          label = case type
+                  when :auto then 'Tự động (Auto nhận diện)'
+                  when :door_1 then 'Cửa đi 1 cánh mở quay'
+                  when :door_2 then 'Cửa đi 2 cánh mở quay'
+                  when :door_4 then 'Cửa đi 4 cánh mở quay'
+                  when :door_sliding then 'Cửa đi lùa (trượt 2 cánh)'
+                  when :window_1 then 'Cửa sổ 1 cánh mở quay'
+                  when :window_2 then 'Cửa sổ 2 cánh mở quay'
+                  when :window_4 then 'Cửa sổ 4 cánh mở quay'
+                  when :window_sliding then 'Cửa sổ lùa (trượt 2 cánh)'
+                  when :fix_glass then 'Vách kính cố định'
+                  end
+          item = style_sub.add_item(label) do
+            @type_index = idx
+            update_status_text
+            update_manual_opening if @manual_mode && @pt1 && @pt2
+            view.invalidate
+          end
+          style_sub.set_validation_proc(item) { idx == @type_index ? MF_CHECKED : MF_UNCHECKED }
+        end
+
+        menu.add_item('Đảo mặt trong / ngoài (Ctrl)') do
+          @flipped = !@flipped
+          update_status_text
+          update_manual_opening if @manual_mode && @pt1 && @pt2
+          view.invalidate
+        end
+
+        mode_label = @manual_mode ? 'Chuyển sang: Tự Động Hốc Tường (Alt)' : 'Chuyển sang: Vẽ Thủ Công 2 Góc Chéo (Alt)'
+        menu.add_item(mode_label) do
+          @manual_mode = !@manual_mode
+          @pt1 = nil
+          @pt2 = nil
+          @input_point_1 = nil
+          @current_manual_opening = nil
+          update_status_text
+          view.invalidate
+        end
+
+        menu.add_separator
+        menu.add_item('Thoát công cụ (Esc)') do
+          Sketchup.active_model.select_tool(nil)
         end
       end
 
@@ -211,29 +187,19 @@ module NAUQ
           @pt2 = nil
           @input_point_1 = nil
           @current_manual_opening = nil
-          @current_opening = nil
-          @preview_bbox = nil
           update_status_text
           view.invalidate
           return true
         elsif key == 9 # VK_TAB: Cycle types
           @type_index = (@type_index + 1) % ITEM_TYPES.size
           update_status_text
-          if @manual_mode && @pt1 && @pt2
-            update_manual_preview
-          elsif @current_opening
-            @preview_bbox = calculate_preview_geometry(@current_opening)
-          end
+          update_manual_opening if @manual_mode && @pt1 && @pt2
           view.invalidate
           return true
         elsif key == 17 # VK_CONTROL: Toggle flip orientation
           @flipped = !@flipped
           update_status_text
-          if @manual_mode && @pt1 && @pt2
-            update_manual_preview
-          elsif @current_opening
-            @preview_bbox = calculate_preview_geometry(@current_opening)
-          end
+          update_manual_opening if @manual_mode && @pt1 && @pt2
           view.invalidate
           return true
         elsif key == 27 # VK_ESCAPE: Cancel pending manual point
@@ -242,7 +208,6 @@ module NAUQ
             @pt2 = nil
             @input_point_1 = nil
             @current_manual_opening = nil
-            @preview_bbox = nil
             update_status_text
             view.invalidate
             return true
@@ -268,11 +233,11 @@ module NAUQ
 
           horiz_dist = Geom::Vector3d.new(@pt2.x - @pt1.x, @pt2.y - @pt1.y, 0).length
           if horiz_dist < 100.0.mm
-            UI.messagebox('Bề rộng cửa quá nhỏ (tối thiểu 100mm). Vui lòng click chọn lại Góc chéo thứ 2.')
+            ::UI.messagebox('Bề rộng cửa quá nhỏ (tối thiểu 100mm). Vui lòng click chọn lại Góc chéo thứ 2.')
             return
           end
 
-          update_manual_preview
+          update_manual_opening
           if @current_manual_opening
             model = Sketchup.active_model
             is_win = decide_is_window(@current_manual_opening)
@@ -286,11 +251,11 @@ module NAUQ
                 Logger.info("Đã vẽ thủ công #{op_label} thành công (Rộng: #{@current_manual_opening[:width_mm].round(0)}mm, Cao: #{@current_manual_opening[:height_mm].round(0)}mm).") if defined?(Logger)
               else
                 model.abort_operation
-                UI.messagebox("Không thể tạo hình học #{op_label}.")
+                ::UI.messagebox("Không thể tạo hình học #{op_label}.")
               end
             rescue StandardError => e
               model.abort_operation
-              UI.messagebox("Lỗi khi vẽ thủ công #{op_label}: #{e.message}")
+              ::UI.messagebox("Lỗi khi vẽ thủ công #{op_label}: #{e.message}")
             end
           end
 
@@ -299,7 +264,6 @@ module NAUQ
           @pt2 = nil
           @input_point_1 = nil
           @current_manual_opening = nil
-          @preview_bbox = nil
           update_status_text
           view.invalidate
         end
@@ -309,13 +273,13 @@ module NAUQ
         @input_point.pick(view, x, y)
         context = pick_context(@input_point, view, x, y)
         unless context
-          UI.messagebox("Vui lòng click vào mặt phẳng cạnh hốc cửa (mặt tường đứng tại vị trí mở cửa).\n\nGợi ý: Bạn có thể bấm phím [Alt] để chuyển sang chế độ Vẽ Thủ Công 2 Góc Chéo.")
+          ::UI.messagebox("Vui lòng click vào mặt phẳng cạnh hốc cửa (mặt tường đứng tại vị trí mở cửa).\n\nGợi ý: Bạn có thể bấm phím [Alt] để chuyển sang chế độ Vẽ Thủ Công 2 Góc Chéo.")
           return
         end
 
         opening = detect_opening_from_context(context)
         unless opening
-          UI.messagebox("Không nhận diện được khoảng trống đối diện của hốc cửa.\n\nGợi ý: Bấm [Alt] để vẽ cửa thủ công bằng cách click 2 góc chéo.")
+          ::UI.messagebox("Không nhận diện được khoảng trống đối diện của hốc cửa.\n\nGợi ý: Bấm [Alt] để vẽ cửa thủ công bằng cách click 2 góc chéo.")
           return
         end
 
@@ -331,17 +295,17 @@ module NAUQ
             Logger.info("Đã thêm thành công #{op_label} vào opening (#{opening[:width_mm].round(0)}x#{opening[:height_mm].round(0)}mm).") if defined?(Logger)
           else
             model.abort_operation
-            UI.messagebox("Không thể tạo hình học #{op_label}.")
+            ::UI.messagebox("Không thể tạo hình học #{op_label}.")
           end
         rescue StandardError => e
           model.abort_operation
-          UI.messagebox("Lỗi khi thêm #{op_label}: #{e.message}")
+          ::UI.messagebox("Lỗi khi thêm #{op_label}: #{e.message}")
         end
 
         view.invalidate
       end
 
-      def update_manual_preview
+      def update_manual_opening
         return unless @pt1 && @pt2
 
         # 1. Horizontal vector and width
@@ -374,7 +338,7 @@ module NAUQ
         glass_h = (Config.get(:glass_height) || 350.0).to_f
         has_transom = glass_h > 0 && (h_mm > 2400.0)
 
-        op = {
+        @current_manual_opening = {
           origin: origin,
           x_axis: x_axis,
           y_axis: y_axis,
@@ -389,8 +353,6 @@ module NAUQ
           fix_bottom_height_mm: is_win && h_mm > 1600.0 ? 400.0 : 0.0,
           is_window_auto: is_win
         }
-        @current_manual_opening = op
-        @preview_bbox = calculate_preview_geometry(op)
       end
 
       def decide_is_window_manual(z_min = 0.0)
@@ -425,10 +387,10 @@ module NAUQ
         if count > 0
           model.commit_operation
           Logger.info("Đã tạo thành công #{count} bộ cửa từ các mặt phẳng đã chọn.") if defined?(Logger)
-          UI.messagebox("Đã tự động tạo #{count} bộ cửa từ các mặt phẳng được chọn!")
+          ::UI.messagebox("Đã tự động tạo #{count} bộ cửa từ các mặt phẳng được chọn!")
         else
           model.abort_operation
-          UI.messagebox('Không tìm thấy hốc cửa hợp lệ trong các mặt phẳng đang chọn.')
+          ::UI.messagebox('Không tìm thấy hốc cửa hợp lệ trong các mặt phẳng đang chọn.')
         end
       end
 
@@ -437,7 +399,13 @@ module NAUQ
       # Traverses input point context to find valid vertical opening face
       def pick_context(ip, view, x, y)
         face = ip.face
-        return { face: face, transformation: ip.transformation, instance_path: ip.instance_path } if valid_vertical_face?(face)
+        if valid_vertical_face?(face)
+          tr = Geom::Transformation.new
+          if ip.respond_to?(:instance_path) && ip.instance_path
+            tr = ip.instance_path.transformation
+          end
+          return { face: face, transformation: tr, instance_path: (ip.respond_to?(:instance_path) ? ip.instance_path : nil) }
+        end
 
         # Raytest backup if hovering inside component or edge
         ray = view.pickray(x, y)
@@ -565,7 +533,7 @@ module NAUQ
         faces
       end
 
-      # Construct exact 3D coordinate system for door alignment
+      # Construct exact 3D coordinate system for door alignment (perfectly flush with exterior face)
       def construct_opening_definition(f_src, tr_src, f_tgt, tr_tgt, forward_normal, width, overlap)
         src_bb = f_src.bounds
         src_pts = [src_bb.min, src_bb.max].map { |p| tr_src * p }
@@ -580,33 +548,34 @@ module NAUQ
 
         # Lateral vector (across the wall thickness)
         up_vec = Geom::Vector3d.new(0, 0, 1)
-        lateral_vec = up_vec * forward_normal
+        lateral_vec = (up_vec * forward_normal).normalize
 
+        # Center of source jamb face
         center_src = tr_src * f_src.bounds.center
-        center_tgt = tr_tgt * f_tgt.bounds.center
-        mid_x = (center_src.x + center_tgt.x) * 0.5
-        mid_y = (center_src.y + center_tgt.y) * 0.5
+        center_src_proj = center_src.to_a.zip(lateral_vec.to_a).map { |a, b| a * b }.sum
 
-        # Lateral midpoint positioning
-        frame_d = FRAME_DEPTH
-        half_frame = frame_d * 0.5
-        mid_lat = overlap[:midpoint]
+        # Align exterior face of door frame flush with exterior edge of opening (extends inwards)
+        if @flipped
+          # Flush with opposite wall face and extends inward
+          delta_lateral = overlap[:min] - center_src_proj
+          origin = center_src.clone
+          origin.z = z_min
+          origin = origin.offset(lateral_vec, delta_lateral)
 
-        # Origin positioned at corner so that frame centered across wall thickness
-        origin = center_src.clone
-        origin.z = z_min
-        origin = origin.offset(lateral_vec, mid_lat - (overlap[:start]))
-        origin = origin.offset(lateral_vec.reverse, half_frame)
+          x_axis = forward_normal.normalize
+          y_axis = lateral_vec.normalize
+          z_axis = up_vec
+        else
+          # Flush with outer (exterior) wall face and extends inward
+          delta_lateral = overlap[:max] - center_src_proj
+          origin = center_src.clone
+          origin.z = z_min
+          origin = origin.offset(lateral_vec, delta_lateral)
 
-        # Coordinate axes:
-        # X: along forward_normal (width of opening from Left jamb to Right jamb)
-        # Y: along lateral_vec (depth of frame into the wall)
-        # Z: along up_vec (height of opening)
-        x_axis = forward_normal.normalize
-        y_axis = lateral_vec.normalize
-        z_axis = up_vec
-
-        y_axis.reverse! if @flipped
+          x_axis = forward_normal.normalize
+          y_axis = lateral_vec.reverse.normalize
+          z_axis = up_vec
+        end
 
         is_window_auto = z_min > 500.0.mm # Higher off ground is recognized as window
 
@@ -651,9 +620,9 @@ module NAUQ
         return nil if overlap_max - overlap_min < 20.0.mm
 
         {
-          start: overlap_min - src_min,
-          end: overlap_max - src_min,
-          midpoint: ((overlap_min + overlap_max) * 0.5) - src_min,
+          min: overlap_min,
+          max: overlap_max,
+          mid_proj: (overlap_min + overlap_max) * 0.5,
           length: overlap_max - overlap_min
         }
       end
@@ -688,72 +657,6 @@ module NAUQ
             end
           end
         end
-      end
-
-      def calculate_preview_geometry(op)
-        w = op[:width_len]
-        h = op[:height_len]
-        frame_d = FRAME_DEPTH
-
-        org = op[:origin]
-        x_vec = op[:x_axis]
-        y_vec = op[:y_axis]
-        z_vec = op[:z_axis]
-
-        corners = []
-        [0.0, h].each do |z_val|
-          [0.0, frame_d].each do |y_val|
-            [0.0, w].each do |x_val|
-              pt = org.offset(x_vec, x_val).offset(y_vec, y_val).offset(z_vec, z_val)
-              corners << pt
-            end
-          end
-        end
-
-        ordered_corners = [
-          corners[0], corners[1], corners[3], corners[2],
-          corners[4], corners[5], corners[7], corners[6]
-        ]
-
-        panel_count = resolve_panel_count(op)
-        division_lines = []
-        is_win = decide_is_window(op)
-
-        # Panel vertical split lines
-        if panel_count > 1
-          (1...panel_count).each do |p_idx|
-            split_x = w * (p_idx.to_f / panel_count)
-            p_bot = org.offset(x_vec, split_x).offset(y_vec, frame_d * 0.5)
-            p_top = p_bot.offset(z_vec, h)
-            division_lines << [p_bot, p_top]
-          end
-        end
-
-        # Window bottom fix preview line
-        if is_win && op[:has_bottom_fix] && op[:fix_bottom_height_mm] > 0
-          bot_fix_len = op[:fix_bottom_height_mm].mm
-          if bot_fix_len < h - 100.mm
-            p_f_l = org.offset(z_vec, bot_fix_len).offset(y_vec, frame_d * 0.5)
-            p_f_r = p_f_l.offset(x_vec, w)
-            division_lines << [p_f_l, p_f_r]
-          end
-        end
-
-        # Top transom fix preview line
-        if op[:has_transom] && op[:glass_height_mm] > 0
-          transom_len = op[:glass_height_mm].mm
-          if transom_len < h - 200.mm
-            p_t_l = org.offset(z_vec, h - transom_len).offset(y_vec, frame_d * 0.5)
-            p_t_r = p_t_l.offset(x_vec, w)
-            division_lines << [p_t_l, p_t_r]
-          end
-        end
-
-        {
-          corners: ordered_corners,
-          division_lines: division_lines,
-          is_window: is_win
-        }
       end
 
       def build_item_for_opening(op)

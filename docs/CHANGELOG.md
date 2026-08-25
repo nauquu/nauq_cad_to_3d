@@ -4,6 +4,19 @@ Toàn bộ lịch sử các phiên bản, các đợt tái cấu trúc kiến tr
 
 ---
 
+## [v1.9.3] - 2026-08-25 (Opening Door Tool Flush Alignment & UI Streamline)
+### Added
+- **Right-Click Context Menu (`OpeningDoorTool`):** Bổ sung menu chuột phải trực quan giúp lựa chọn nhanh chóng các loại cửa đi, cửa sổ, cửa lùa, vách kính cố định và đảo chiều đặt cửa.
+- **Accented Vietnamese Standardization:** Chuẩn hóa 100% tiếng Việt có dấu đầy đủ, chuẩn chính tả trên thanh trạng thái, menu và hộp thoại thông báo.
+
+### Fixed & Optimized
+- **Exterior Flush Edge Placement:**
+  - Khắc phục triệt để lỗi khung cửa bị lệch tâm ra ngoài mép tường.
+  - Tự động đặt khung nhôm cửa bằng phẳng $100\%$ với mép ngoài hốc tường (mặc định) và ăn sâu vào lòng tường, hỗ trợ phím `Ctrl` đảo vào mép trong.
+- **Lightweight Streamlined Interaction:** Loại bỏ render preview viewport để công cụ phản hồi tức thì, mượt mà và thao tác click đặt cửa chuẩn xác.
+
+---
+
 ## [v1.9.2] - 2026-08-25 (Performance Optimization, Dynamic Cursors & Async Snapshot)
 ### Added
 - **Dynamic 2-Headed & 4-Way Cursors (`SnapshotCropTool`):**
