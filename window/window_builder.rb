@@ -25,7 +25,30 @@ module NAUQ
           active_width = layout[:active_width]
           active_height = layout[:active_height]
 
-          leaf_width = active_width / panel_count.to_f
+          is_sliding = !!options[:is_sliding]
+          overlap = is_sliding ? 30.0.mm : 0.0.mm
+
+          if is_sliding && panel_count == 2
+            leaf_width = (active_width + overlap) / 2.0
+            leaf_specs = [
+              { x: layout[:active_x0], y_shift: -12.mm, w: leaf_width },
+              { x: layout[:active_x0] + active_width - leaf_width, y_shift: 12.mm, w: leaf_width }
+            ]
+          elsif is_sliding && panel_count == 4
+            leaf_width = (active_width + 2 * overlap) / 4.0
+            leaf_specs = [
+              { x: layout[:active_x0], y_shift: -12.mm, w: leaf_width },
+              { x: layout[:active_x0] + leaf_width - overlap, y_shift: 12.mm, w: leaf_width },
+              { x: layout[:active_x0] + 2 * leaf_width - overlap, y_shift: 12.mm, w: leaf_width },
+              { x: layout[:active_x0] + active_width - leaf_width, y_shift: -12.mm, w: leaf_width }
+            ]
+          else
+            leaf_width = active_width / panel_count.to_f
+            leaf_specs = panel_count.times.map do |idx|
+              { x: layout[:active_x0] + (idx * leaf_width), y_shift: 0.mm, w: leaf_width }
+            end
+          end
+
           leaf_height = active_height
 
           frame_mat = options[:frame_material] || (MaterialLoader.get_material(model, 'kimloaidengoaithat') rescue nil)
@@ -52,26 +75,47 @@ module NAUQ
           )
 
           # 3. Create LEAF Instances
-          panel_count.times do |index|
+          leaf_specs.each_with_index do |spec, index|
             inst = LeafBuilder.create_leaf_instance(
               win_assembly,
               definition,
               index,
-              leaf_width,
-              x_offset: layout[:active_x0],
-              frame_width: 0.mm,
+              spec[:w],
+              exact_x: spec[:x],
               material: frame_mat
             )
-            inst.transform!(Geom::Transformation.translation(Geom::Vector3d.new(0, 0, layout[:active_z0])))
+            t_z = Geom::Transformation.translation(Geom::Vector3d.new(0, spec[:y_shift], layout[:active_z0]))
+            inst.transform!(t_z)
           end
 
           # 4. Build GLASS (Main Leaf Glass + All Fix Panel Glasses)
-          GlassBuilder.build_layout_glasses(
-            win_assembly,
-            layout,
-            glass_mat,
-            include_active: true
-          )
+          if is_sliding
+            leaf_specs.each_with_index do |spec, idx|
+              GlassBuilder.build_panel(
+                win_assembly,
+                spec[:x],
+                spec[:x] + spec[:w],
+                layout[:active_z0],
+                layout[:active_z1],
+                glass_mat,
+                "GLASS_WIN_LEAF_#{idx + 1}",
+                y_offset: spec[:y_shift]
+              )
+            end
+            GlassBuilder.build_layout_glasses(
+              win_assembly,
+              layout,
+              glass_mat,
+              include_active: false
+            )
+          else
+            GlassBuilder.build_layout_glasses(
+              win_assembly,
+              layout,
+              glass_mat,
+              include_active: true
+            )
+          end
 
           win_assembly
         end

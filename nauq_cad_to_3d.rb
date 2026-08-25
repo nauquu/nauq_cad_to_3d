@@ -11,7 +11,7 @@ module NAUQ
   module CadTo3D
     PLUGIN_ID = 'NAUQ_CAD_TO_3D' unless defined?(PLUGIN_ID)
     PLUGIN_NAME = 'NAUQ CAD to 3D' unless defined?(PLUGIN_NAME)
-    PLUGIN_VERSION = '1.9.3' unless defined?(PLUGIN_VERSION)
+    PLUGIN_VERSION = '1.9.4' unless defined?(PLUGIN_VERSION)
 
     # Function to load / reload all internal submodules
     class << self

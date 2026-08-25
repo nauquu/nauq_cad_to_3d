@@ -133,11 +133,12 @@ module NAUQ
         # @param leaf_width [Length, Float]
         # @param x_offset [Length, Float]
         # @param frame_width [Length, Float]
+        # @param exact_x [Length, Float, nil] Direct X position (overrides x_offset calculation)
         # @return [Sketchup::ComponentInstance]
-        def create_leaf_instance(parent_group, definition, index, leaf_width, x_offset: 0.mm, frame_width: 50.mm, material: nil)
+        def create_leaf_instance(parent_group, definition, index, leaf_width, x_offset: 0.mm, frame_width: 50.mm, material: nil, exact_x: nil)
           target_entities = parent_group.respond_to?(:entities) ? parent_group.entities : parent_group
 
-          x = x_offset + frame_width + (index * leaf_width)
+          x = exact_x ? exact_x : (x_offset + frame_width + (index * leaf_width))
           t = Geom::Transformation.translation(Geom::Vector3d.new(x, 0, 0))
 
           instance = target_entities.add_instance(definition, t)

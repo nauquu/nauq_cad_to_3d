@@ -4,6 +4,20 @@ Toàn bộ lịch sử các phiên bản, các đợt tái cấu trúc kiến tr
 
 ---
 
+## [v1.9.4] - 2026-08-25 (Sliding Door 2-Track System, Leaf Alignment & Opening Highlight)
+### Added
+- **Interactive Opening Highlight (`OpeningDoorTool`):** Tự động highlight khung hộp 3D xanh lam ôm trọn hốc tường khi rê chuột, giúp nhận biết chính xác vị trí bắt điểm trước khi click.
+- **Realistic 2-Track Sliding Geometry (`DoorGenerator` & `WindowBuilder`):**
+  - Dựng hệ 2 ray so le lệch nhau $24\text{mm}$ theo chiều sâu Y giữa cánh trong và cánh ngoài.
+  - Tự động cộng đoạn gối mí (overlap $30\text{mm}$) ở giữa 2 cánh theo chuẩn kỹ thuật cửa lùa nhôm kính.
+  - Mặt kính của từng cánh tự động chạy đúng theo chiều sâu Y của từng cánh tương ứng.
+
+### Fixed & Optimized
+- **Leaf Instance Coordinate Calculation:** Sửa lỗi cộng dồn X offset trong `LeafBuilder.create_leaf_instance` khiến cánh cửa thứ 2 bị lệch ra ngoài khung bao.
+- **Window Opening Definition:** Loại bỏ quy tắc tự động ép thêm ô kính Fix dưới không mong muốn khi tạo cửa sổ.
+
+---
+
 ## [v1.9.3] - 2026-08-25 (Opening Door Tool Flush Alignment & UI Streamline)
 ### Added
 - **Right-Click Context Menu (`OpeningDoorTool`):** Bổ sung menu chuột phải trực quan giúp lựa chọn nhanh chóng các loại cửa đi, cửa sổ, cửa lùa, vách kính cố định và đảo chiều đặt cửa.

@@ -43,9 +43,30 @@ module NAUQ
           active_height = layout[:active_height]
 
           raise "#{door_name}: Chiều rộng vùng cánh (#{active_width.to_mm}mm) <= 0" if active_width <= 0
-          raise "#{door_name}: Chiều cao vùng cánh (#{active_height.to_mm}mm) <= 0" if active_height <= 0
+          is_sliding = !!options[:is_sliding]
+          overlap = is_sliding ? 30.0.mm : 0.0.mm
 
-          leaf_width = active_width / panel_count.to_f
+          if is_sliding && panel_count == 2
+            leaf_width = (active_width + overlap) / 2.0
+            leaf_specs = [
+              { x: layout[:active_x0], y_shift: -12.mm, w: leaf_width },
+              { x: layout[:active_x0] + active_width - leaf_width, y_shift: 12.mm, w: leaf_width }
+            ]
+          elsif is_sliding && panel_count == 4
+            leaf_width = (active_width + 2 * overlap) / 4.0
+            leaf_specs = [
+              { x: layout[:active_x0], y_shift: -12.mm, w: leaf_width },
+              { x: layout[:active_x0] + leaf_width - overlap, y_shift: 12.mm, w: leaf_width },
+              { x: layout[:active_x0] + 2 * leaf_width - overlap, y_shift: 12.mm, w: leaf_width },
+              { x: layout[:active_x0] + active_width - leaf_width, y_shift: -12.mm, w: leaf_width }
+            ]
+          else
+            leaf_width = active_width / panel_count.to_f
+            leaf_specs = panel_count.times.map do |idx|
+              { x: layout[:active_x0] + (idx * leaf_width), y_shift: 0.mm, w: leaf_width }
+            end
+          end
+
           leaf_height = active_height
 
           # 3. Resolve Materials
@@ -74,25 +95,47 @@ module NAUQ
           )
 
           # 7. Create LEAF Instances
-          panel_count.times do |index|
+          leaf_specs.each_with_index do |spec, index|
             inst = LeafBuilder.create_leaf_instance(
               door,
               definition,
               index,
-              leaf_width,
-              x_offset: layout[:active_x0],
-              frame_width: 0.mm
+              spec[:w],
+              exact_x: spec[:x],
+              material: frame_mat
             )
-            inst.transform!(Geom::Transformation.translation(Geom::Vector3d.new(0, 0, layout[:active_z0])))
+            t_z = Geom::Transformation.translation(Geom::Vector3d.new(0, spec[:y_shift], layout[:active_z0]))
+            inst.transform!(t_z)
           end
 
           # 8. Build GLASS (Main Leaf Glass + All Fix Panel Glasses)
-          GlassBuilder.build_layout_glasses(
-            door,
-            layout,
-            glass_mat,
-            include_active: true
-          )
+          if is_sliding
+            leaf_specs.each_with_index do |spec, idx|
+              GlassBuilder.build_panel(
+                door,
+                spec[:x],
+                spec[:x] + spec[:w],
+                layout[:active_z0],
+                layout[:active_z1],
+                glass_mat,
+                "GLASS_LEAF_#{idx + 1}",
+                y_offset: spec[:y_shift]
+              )
+            end
+            GlassBuilder.build_layout_glasses(
+              door,
+              layout,
+              glass_mat,
+              include_active: false
+            )
+          else
+            GlassBuilder.build_layout_glasses(
+              door,
+              layout,
+              glass_mat,
+              include_active: true
+            )
+          end
 
           # 9. Set Attributes (V20 standard attributes + NAUQ Tagging)
           add_attributes(

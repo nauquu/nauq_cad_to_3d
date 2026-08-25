@@ -18,7 +18,7 @@ module NAUQ
         # @param z1 [Length, Float]
         # @param material [Sketchup::Material, nil]
         # @return [Sketchup::Group, nil]
-        def build_panel(parent_group, x0, x1, z0, z1, material = nil, name = 'GLASS')
+        def build_panel(parent_group, x0, x1, z0, z1, material = nil, name = 'GLASS', y_offset: 0.mm)
           return nil unless x1 > x0 && z1 > z0
 
           target_entities = parent_group.respond_to?(:entities) ? parent_group.entities : parent_group
@@ -26,7 +26,7 @@ module NAUQ
           glass.name = name
           entities = glass.entities
 
-          leaf_center_y = LEAF_DEPTH_OFFSET + (LEAF_DEPTH / 2.0)
+          leaf_center_y = LEAF_DEPTH_OFFSET + (LEAF_DEPTH / 2.0) + y_offset
           glass_y = leaf_center_y - (GLASS_THICKNESS / 2.0)
 
           points = [

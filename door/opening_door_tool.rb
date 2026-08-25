@@ -23,7 +23,9 @@ module NAUQ
         fix_glass
       ].freeze
 
-      COLOR_LINE = Sketchup::Color.new(37, 99, 235, 220)
+      COLOR_HIGHLIGHT_FILL = Sketchup::Color.new(59, 130, 246, 45)
+      COLOR_HIGHLIGHT_EDGE = Sketchup::Color.new(37, 99, 235, 255)
+      COLOR_LINE           = Sketchup::Color.new(37, 99, 235, 220)
 
       def initialize
         @type_index = 0 # 0 = :auto
@@ -34,6 +36,7 @@ module NAUQ
         @input_point_1 = nil
         @pt1 = nil
         @pt2 = nil
+        @hover_opening = nil
         @current_manual_opening = nil
       end
 
@@ -48,6 +51,7 @@ module NAUQ
       end
 
       def deactivate(view)
+        @hover_opening = nil
         @current_manual_opening = nil
         @pt1 = nil
         @pt2 = nil
@@ -85,6 +89,7 @@ module NAUQ
 
       def onMouseMove(_flags, x, y, view)
         if @manual_mode
+          @hover_opening = nil
           if @pt1.nil?
             @input_point.pick(view, x, y)
           else
@@ -94,6 +99,8 @@ module NAUQ
           end
         else
           @input_point.pick(view, x, y)
+          context = pick_context(@input_point, view, x, y)
+          @hover_opening = context ? detect_opening_from_context(context) : nil
         end
 
         view.invalidate
@@ -103,14 +110,50 @@ module NAUQ
         # Draw active input point inference
         @input_point.draw(view) if @input_point&.valid?
 
-        # Draw manual mode 2-point drag line if in manual mode
-        return unless @manual_mode && @pt1
+        # Highlight detected opening cleanly
+        if @hover_opening && !@manual_mode
+          op = @hover_opening
+          org = op[:origin]
+          xv = op[:x_axis]
+          yv = op[:y_axis]
+          zv = op[:z_axis]
+          w = op[:width_len]
+          h = op[:height_len]
+          d = FRAME_DEPTH
 
-        view.draw_points([@pt1], 8, 1, COLOR_LINE)
-        if @pt2
-          view.drawing_color = COLOR_LINE
-          view.line_width = 2
-          view.draw(GL_LINES, [@pt1, @pt2])
+          p0 = org
+          p1 = org.offset(xv, w)
+          p2 = p1.offset(zv, h)
+          p3 = p0.offset(zv, h)
+          front_quad = [p0, p1, p2, p3]
+
+          b0 = p0.offset(yv, d)
+          b1 = p1.offset(yv, d)
+          b2 = p2.offset(yv, d)
+          b3 = p3.offset(yv, d)
+          back_quad = [b0, b1, b2, b3]
+
+          # Semi-transparent face fill
+          view.drawing_color = COLOR_HIGHLIGHT_FILL
+          view.draw(GL_QUADS, front_quad)
+          view.draw(GL_QUADS, back_quad)
+
+          # Crisp wireframe outlines
+          view.drawing_color = COLOR_HIGHLIGHT_EDGE
+          view.line_width = 3
+          view.draw(GL_LINE_LOOP, front_quad)
+          view.draw(GL_LINE_LOOP, back_quad)
+          view.draw(GL_LINES, [p0, b0, p1, b1, p2, b2, p3, b3])
+        end
+
+        # Draw manual mode 2-point drag line if in manual mode
+        if @manual_mode && @pt1
+          view.draw_points([@pt1], 8, 1, COLOR_LINE)
+          if @pt2
+            view.drawing_color = COLOR_LINE
+            view.line_width = 2
+            view.draw(GL_LINES, [@pt1, @pt2])
+          end
         end
       end
 
@@ -398,35 +441,42 @@ module NAUQ
 
       # Traverses input point context to find valid vertical opening face
       def pick_context(ip, view, x, y)
-        face = ip.face
-        if valid_vertical_face?(face)
-          tr = Geom::Transformation.new
-          if ip.respond_to?(:instance_path) && ip.instance_path
+        # 1. Try ip.instance_path (Most accurate in SketchUp)
+        if ip.respond_to?(:instance_path) && ip.instance_path && !ip.instance_path.empty?
+          leaf = ip.instance_path.to_a.last
+          if leaf.is_a?(Sketchup::Face)
             tr = ip.instance_path.transformation
+            return { face: leaf, transformation: tr, instance_path: ip.instance_path.to_a } if valid_vertical_face?(leaf, tr)
           end
-          return { face: face, transformation: tr, instance_path: (ip.respond_to?(:instance_path) ? ip.instance_path : nil) }
         end
 
-        # Raytest backup if hovering inside component or edge
+        # 2. Try raw ip.face
+        if ip.face && ip.face.is_a?(Sketchup::Face)
+          tr = Geom::Transformation.new
+          return { face: ip.face, transformation: tr, instance_path: nil } if valid_vertical_face?(ip.face, tr)
+        end
+
+        # 3. Raytest backup from camera pickray
         ray = view.pickray(x, y)
         hit = Sketchup.active_model.raytest(ray)
         if hit
           hit_point, path = hit
           leaf = path.last
-          if leaf.is_a?(Sketchup::Face) && valid_vertical_face?(leaf)
+          if leaf.is_a?(Sketchup::Face)
             tr = Geom::Transformation.new
             path.each { |ent| tr *= ent.transformation if ent.respond_to?(:transformation) }
-            return { face: leaf, transformation: tr, instance_path: path }
+            return { face: leaf, transformation: tr, instance_path: path } if valid_vertical_face?(leaf, tr)
           end
         end
 
         nil
       end
 
-      def valid_vertical_face?(face)
-        return false unless face && face.valid?
+      def valid_vertical_face?(face, tr = nil)
+        return false unless face && face.is_a?(Sketchup::Face) && face.valid?
         normal = face.normal
-        normal.z.abs <= 0.2 # Must be vertical wall face
+        normal = (tr * normal).normalize if tr
+        normal.z.abs <= 0.35 # Must be vertical wall face
       end
 
       # Raycasts from the source face along its normal to locate the opposite parallel opening face
@@ -439,15 +489,14 @@ module NAUQ
         return nil if source_normal.length < 0.001
 
         model = Sketchup.active_model
-        container = context[:instance_path] ? context[:instance_path].first : model.active_entities
-        all_faces = find_candidate_faces(container)
+        all_faces = find_candidate_faces(model.active_entities)
 
         best_target = nil
         min_distance = Float::INFINITY
         best_overlap = nil
 
         center_pt = tr * face.bounds.center
-        ray = [center_pt, source_normal]
+        ray = [center_pt.offset(source_normal, 2.0.mm), source_normal]
         hit = model.raytest(ray)
 
         if hit
@@ -460,11 +509,11 @@ module NAUQ
             hit_normal = Geom::Vector3d.new(hit_normal.x, hit_normal.y, 0).normalize
 
             dot = source_normal.dot(hit_normal)
-            if dot < -0.9 # Opposite parallel face
+            if dot < -0.85 # Opposite parallel face
               dist = center_pt.distance(hit_pt)
               if dist >= MIN_OPENING_WIDTH_MM.mm && dist <= MAX_OPENING_WIDTH_MM.mm
                 overlap = calculate_face_overlap(face, tr, hit_face, hit_tr, source_normal)
-                if overlap && overlap[:length] >= 50.0.mm
+                if overlap && overlap[:length] >= 20.0.mm
                   best_target = { face: hit_face, transformation: hit_tr }
                   min_distance = dist
                   best_overlap = overlap
@@ -474,7 +523,7 @@ module NAUQ
           end
         end
 
-        # Exhaustive search if raycast misses
+        # Exhaustive search across candidate faces if raycast misses
         unless best_target
           all_faces.each do |candidate|
             next if candidate[:face] == face
@@ -484,7 +533,7 @@ module NAUQ
             next if c_norm.length < 0.001
 
             dot = source_normal.dot(c_norm)
-            next unless dot < -0.9 # Opposite parallel face
+            next unless dot < -0.85 # Opposite parallel face
 
             c_center = candidate[:transformation] * candidate[:face].bounds.center
             vec = c_center - center_pt
@@ -492,7 +541,7 @@ module NAUQ
             next unless dist >= MIN_OPENING_WIDTH_MM.mm && dist <= MAX_OPENING_WIDTH_MM.mm
 
             overlap = calculate_face_overlap(face, tr, candidate[:face], candidate[:transformation], source_normal)
-            next unless overlap && overlap[:length] >= 50.0.mm
+            next unless overlap && overlap[:length] >= 20.0.mm
 
             if dist < min_distance
               min_distance = dist
@@ -594,8 +643,8 @@ module NAUQ
           is_window_auto: is_window_auto,
           has_transom: has_transom,
           glass_height_mm: glass_h,
-          has_bottom_fix: is_window_auto && height.to_mm > 1600.0,
-          fix_bottom_height_mm: is_window_auto ? 400.0 : 0.0
+          has_bottom_fix: false,
+          fix_bottom_height_mm: 0.0
         }
       end
 
@@ -666,6 +715,9 @@ module NAUQ
         is_win = decide_is_window(op)
         panel_count = resolve_panel_count(op)
 
+        selected_type = ITEM_TYPES[@type_index]
+        is_sliding = selected_type.to_s.include?('sliding')
+
         assembly = if is_win
                      # Build WINDOW directly as an independent assembly
                      WindowBuilder.generate(
@@ -674,6 +726,7 @@ module NAUQ
                        width: w_mm.mm,
                        height: h_mm.mm,
                        panel_count: panel_count,
+                       is_sliding: is_sliding,
                        has_fix_top: op[:has_transom],
                        fix_top_height: op[:glass_height_mm].to_f.mm,
                        has_fix_bottom: op[:has_bottom_fix],
@@ -687,6 +740,7 @@ module NAUQ
                        width: w_mm.mm,
                        height: h_mm.mm,
                        panel_count: panel_count,
+                       is_sliding: is_sliding,
                        has_fix_top: op[:has_transom],
                        fix_module_height: op[:glass_height_mm].to_f.mm
                      )
