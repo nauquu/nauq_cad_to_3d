@@ -4,6 +4,17 @@ Toàn bộ lịch sử các phiên bản, các đợt tái cấu trúc kiến tr
 
 ---
 
+## [v1.9.6] - 2026-08-25 (Sliding Door Exact Frame Stile Overlap & Depth Offset)
+### Changed & Optimized
+- **Sliding Leaf Frame Stile Overlap (`DoorGenerator` & `WindowBuilder`):**
+  - Tự động tính toán bề rộng cánh cửa lùa với khoảng chồng mí đè lên nhau đúng bằng chiều rộng đố nhôm khung cánh ($71.0\text{mm}$).
+  - Khi nhìn trực diện, 2 đố nhôm ở giữa chồng khít $100\%$ lên nhau thành một đố chuẩn, không bị hở khe hay lẹm kính.
+- **Exact Leaf Thickness Y-Offset:**
+  - Thiết lập khoảng cách lệch giữa Ray ngoài ($Y = 0\dots 40\text{mm}$) và Ray trong ($Y = 40\dots 80\text{mm}$) đúng bằng $40.0\text{mm}$ (bằng chính xác độ dày cánh cửa).
+  - Triệt tiêu hoàn toàn sự giao nhau hay ăn lẹm giữa 2 cánh cửa trượt.
+
+---
+
 ## [v1.9.5] - 2026-08-25 (Embedded Leaf Glass Architecture)
 ### Added
 - **Embedded Leaf Glass Architecture (`LeafBuilder`):**

@@ -6,6 +6,7 @@ module NAUQ
     module LeafBuilder
       FRAME_DEPTH = 80.0.mm unless defined?(FRAME_DEPTH)
       LEAF_DEPTH = 40.0.mm unless defined?(LEAF_DEPTH)
+      LEAF_FRAME_WIDTH = 71.0.mm unless defined?(LEAF_FRAME_WIDTH)
       LEAF_DEPTH_OFFSET = ((FRAME_DEPTH - LEAF_DEPTH) / 2.0) unless defined?(LEAF_DEPTH_OFFSET) # 20.mm
 
       PROFILE_POINTS = [

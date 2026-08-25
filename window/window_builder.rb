@@ -26,21 +26,21 @@ module NAUQ
           active_height = layout[:active_height]
 
           is_sliding = !!options[:is_sliding]
-          overlap = is_sliding ? 30.0.mm : 0.0.mm
+          overlap = is_sliding ? (LeafBuilder::LEAF_FRAME_WIDTH || 71.0.mm) : 0.0.mm
 
           if is_sliding && panel_count == 2
             leaf_width = (active_width + overlap) / 2.0
             leaf_specs = [
-              { x: layout[:active_x0], y_shift: -12.mm, w: leaf_width },
-              { x: layout[:active_x0] + active_width - leaf_width, y_shift: 12.mm, w: leaf_width }
+              { x: layout[:active_x0], y_shift: -20.0.mm, w: leaf_width },
+              { x: layout[:active_x0] + active_width - leaf_width, y_shift: 20.0.mm, w: leaf_width }
             ]
           elsif is_sliding && panel_count == 4
             leaf_width = (active_width + 2 * overlap) / 4.0
             leaf_specs = [
-              { x: layout[:active_x0], y_shift: -12.mm, w: leaf_width },
-              { x: layout[:active_x0] + leaf_width - overlap, y_shift: 12.mm, w: leaf_width },
-              { x: layout[:active_x0] + 2 * leaf_width - overlap, y_shift: 12.mm, w: leaf_width },
-              { x: layout[:active_x0] + active_width - leaf_width, y_shift: -12.mm, w: leaf_width }
+              { x: layout[:active_x0], y_shift: -20.0.mm, w: leaf_width },
+              { x: layout[:active_x0] + leaf_width - overlap, y_shift: 20.0.mm, w: leaf_width },
+              { x: layout[:active_x0] + 2 * leaf_width - overlap, y_shift: 20.0.mm, w: leaf_width },
+              { x: layout[:active_x0] + active_width - leaf_width, y_shift: -20.0.mm, w: leaf_width }
             ]
           else
             leaf_width = active_width / panel_count.to_f
