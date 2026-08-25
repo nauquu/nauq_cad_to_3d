@@ -4,6 +4,17 @@ Toàn bộ lịch sử các phiên bản, các đợt tái cấu trúc kiến tr
 
 ---
 
+## [v1.9.1] - 2026-08-25 (Fix UI Module Collision & Toolbar Boot Sequence)
+### Fixed
+- **Resolve `NAUQ::UI` Namespace Shadowing:**
+  - Chuyển namespace của `SnapshotCropTool` từ `NAUQ::UI` sang `NAUQ::CadTo3D`, ngăn việc vô tình tạo ra module con trùng tên che khuất module `::UI` toàn cục của SketchUp.
+  - Thêm tiền tố `::UI` cho toàn bộ các lệnh gọi menu, toolbar, messagebox và context menu.
+- **Fix Extension Boot Sequence:**
+  - Di chuyển lệnh gọi `reload!` và `init_ui` xuống cuối tệp `nauq_cad_to_3d.rb` sau khi mọi định nghĩa method đã được parse hoàn tất.
+  - Sửa lỗi cú pháp do thừa từ khóa `end` ở cuối tệp.
+
+---
+
 ## [v1.9.0] - 2026-08-25 (Interactive 3D Snapshot & Framing Tool)
 ### Added
 - **Interactive Viewport Framing & Crop Tool (`SnapshotCropTool`):**
