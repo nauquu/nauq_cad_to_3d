@@ -4,6 +4,18 @@ Toàn bộ lịch sử các phiên bản, các đợt tái cấu trúc kiến tr
 
 ---
 
+## [v1.9.5] - 2026-08-25 (Embedded Leaf Glass Architecture)
+### Added
+- **Embedded Leaf Glass Architecture (`LeafBuilder`):**
+  - Tấm kính `GLASS` được nhúng trực tiếp vào bên trong `ComponentDefinition` của từng Cánh cửa (`LEAF`), tạo thành một khối thống nhất.
+  - Khi xoay mở cánh (`Rotate`) hoặc trượt cánh (`Move`), tấm kính tự động di chuyển đồng bộ cùng khung nhôm.
+  - Tự động làm mới và kiểm tra cache định nghĩa `ComponentDefinition` trong phiên làm việc của SketchUp để đảm bảo luôn cập nhật đầy đủ kính.
+
+### Optimized
+- **Outliner Hierarchy Cleanup:** Tối ưu hóa cấu trúc cây Outliner gọn gàng, giảm thiểu đối tượng thừa cấp cao và tối ưu bộ nhớ RAM/GPU instancing.
+
+---
+
 ## [v1.9.4] - 2026-08-25 (Sliding Door 2-Track System, Leaf Alignment & Opening Highlight)
 ### Added
 - **Interactive Opening Highlight (`OpeningDoorTool`):** Tự động highlight khung hộp 3D xanh lam ôm trọn hốc tường khi rê chuột, giúp nhận biết chính xác vị trí bắt điểm trước khi click.

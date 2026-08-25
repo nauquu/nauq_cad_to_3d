@@ -37,25 +37,46 @@ module NAUQ
         # @param material [Sketchup::Material, nil]
         # @param prefix [String]
         # @return [Sketchup::ComponentDefinition]
-        def get_or_create_leaf_definition(model, leaf_width, leaf_height, material = nil, prefix = 'TT_DOOR_LEAF')
+        # Get or create ComponentDefinition for LEAF (contains aluminum leaf frame + embedded GLASS group)
+        # @param model [Sketchup::Model]
+        # @param leaf_width [Length, Float]
+        # @param leaf_height [Length, Float]
+        # @param frame_material [Sketchup::Material, nil]
+        # @param glass_material [Sketchup::Material, nil]
+        # @param prefix [String]
+        # @return [Sketchup::ComponentDefinition]
+        def get_or_create_leaf_definition(model, leaf_width, leaf_height, frame_material = nil, glass_material = nil, prefix = nil)
+          if glass_material.is_a?(String) && (glass_material.start_with?('TT_') || prefix.nil?)
+            # Handle legacy signature (model, leaf_width, leaf_height, frame_material, prefix)
+            prefix = glass_material
+            glass_material = nil
+          end
+          prefix ||= 'TT_DOOR_LEAF'
+
           width_mm = leaf_width.to_mm.round(2)
           height_mm = leaf_height.to_mm.round(2)
           definition_name = "#{prefix}_#{width_mm}x#{height_mm}"
 
-          existing = model.definitions[definition_name]
-          return existing if existing && existing.valid?
+          definition = model.definitions[definition_name]
+          if definition && definition.valid?
+            has_glass = definition.entities.grep(Sketchup::Group).any? { |g| g.name == 'GLASS' }
+            return definition if has_glass
+            definition.entities.clear!
+          else
+            definition = model.definitions.add(definition_name)
+          end
 
-          definition = model.definitions.add(definition_name)
-          create_leaf_geometry(definition, leaf_width, leaf_height, material)
+          create_leaf_geometry(definition, leaf_width, leaf_height, frame_material, glass_material)
           definition
         end
 
-        # Create leaf geometry inside definition using V20 FollowMe algorithm
+        # Create leaf geometry inside definition using V20 FollowMe algorithm with embedded GLASS group
         # @param definition [Sketchup::ComponentDefinition]
         # @param leaf_width [Length, Float]
         # @param leaf_height [Length, Float]
-        # @param material [Sketchup::Material, nil]
-        def create_leaf_geometry(definition, leaf_width, leaf_height, material = nil)
+        # @param frame_material [Sketchup::Material, nil]
+        # @param glass_material [Sketchup::Material, nil]
+        def create_leaf_geometry(definition, leaf_width, leaf_height, frame_material = nil, glass_material = nil)
           temp = definition.entities.add_group
           entities = temp.entities
 
@@ -120,9 +141,36 @@ module NAUQ
             )
           )
 
-          MaterialLoader.apply_material(temp, material) if material
+          MaterialLoader.apply_material(temp, frame_material) if frame_material
 
           temp.explode
+
+          # 5. Build embedded GLASS Group inside LEAF Definition
+          glass_mat = glass_material || (MaterialLoader.get_material(definition.model || Sketchup.active_model, 'kinhh6') rescue nil)
+          glass_margin = 55.0.mm
+          gx0 = glass_margin
+          gx1 = leaf_width - glass_margin
+          gz0 = glass_margin
+          gz1 = leaf_height - glass_margin
+          glass_thickness = 10.0.mm
+          glass_y = leaf_center_y - (glass_thickness / 2.0)
+
+          if gx1 > gx0 && gz1 > gz0
+            glass_group = definition.entities.add_group
+            glass_group.name = 'GLASS'
+            pts = [
+              Geom::Point3d.new(gx0, glass_y, gz0),
+              Geom::Point3d.new(gx1, glass_y, gz0),
+              Geom::Point3d.new(gx1, glass_y, gz1),
+              Geom::Point3d.new(gx0, glass_y, gz1)
+            ]
+            face = glass_group.entities.add_face(pts)
+            if face
+              face.pushpull(-glass_thickness)
+              MaterialLoader.apply_material(glass_group, glass_mat) if glass_mat
+            end
+          end
+
           definition
         end
 

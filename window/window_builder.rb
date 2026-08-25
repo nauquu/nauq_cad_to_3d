@@ -65,16 +65,17 @@ module NAUQ
             options.merge(material: frame_mat, is_window: true, x_offset: x_offset)
           )
 
-          # 2. Get or create LEAF Definition
+          # 2. Get or create LEAF Definition (embeds aluminum frame + GLASS group inside LEAF)
           definition = LeafBuilder.get_or_create_leaf_definition(
             model,
             leaf_width,
             leaf_height,
             frame_mat,
+            glass_mat,
             'TT_WIN_LEAF'
           )
 
-          # 3. Create LEAF Instances
+          # 3. Create LEAF Instances (each instance contains frame + its own embedded glass)
           leaf_specs.each_with_index do |spec, index|
             inst = LeafBuilder.create_leaf_instance(
               win_assembly,
@@ -88,34 +89,13 @@ module NAUQ
             inst.transform!(t_z)
           end
 
-          # 4. Build GLASS (Main Leaf Glass + All Fix Panel Glasses)
-          if is_sliding
-            leaf_specs.each_with_index do |spec, idx|
-              GlassBuilder.build_panel(
-                win_assembly,
-                spec[:x],
-                spec[:x] + spec[:w],
-                layout[:active_z0],
-                layout[:active_z1],
-                glass_mat,
-                "GLASS_WIN_LEAF_#{idx + 1}",
-                y_offset: spec[:y_shift]
-              )
-            end
-            GlassBuilder.build_layout_glasses(
-              win_assembly,
-              layout,
-              glass_mat,
-              include_active: false
-            )
-          else
-            GlassBuilder.build_layout_glasses(
-              win_assembly,
-              layout,
-              glass_mat,
-              include_active: true
-            )
-          end
+          # 4. Build Fix Glasses if present (Top Transom / Fix Panels)
+          GlassBuilder.build_layout_glasses(
+            win_assembly,
+            layout,
+            glass_mat,
+            include_active: false
+          )
 
           win_assembly
         end

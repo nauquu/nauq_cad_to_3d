@@ -44,6 +44,30 @@ module NAUQ
           glass
         end
 
+        # Build individual glass solid for each leaf panel (1 Leaf = 1 Glass)
+        # @param parent_group [Sketchup::Group, Sketchup::Entities]
+        # @param leaf_specs [Array<Hash>] [{ x:, y_shift:, w: }]
+        # @param layout [Hash]
+        # @param material [Sketchup::Material, nil]
+        # @param prefix [String]
+        # @return [Array<Sketchup::Group>]
+        def build_leaf_panels(parent_group, leaf_specs, layout, material = nil, prefix = 'GLASS_LEAF')
+          glasses = []
+          z0 = layout[:active_z0]
+          z1 = layout[:active_z1]
+
+          leaf_specs.each_with_index do |spec, idx|
+            x0 = spec[:x]
+            x1 = spec[:x] + spec[:w]
+            y_shift = spec[:y_shift] || 0.mm
+
+            g = build_panel(parent_group, x0, x1, z0, z1, material, "#{prefix}_#{idx + 1}", y_offset: y_shift)
+            glasses << g if g
+          end
+
+          glasses
+        end
+
         # Build all glasses from layout (active glass + all fix panels)
         # @param parent_group [Sketchup::Group, Sketchup::Entities]
         # @param layout [Hash] layout from FrameBuilder.calculate_layout
