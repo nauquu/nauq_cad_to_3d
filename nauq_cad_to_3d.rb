@@ -91,8 +91,7 @@ module NAUQ
       end
     end
 
-    # Load all internal modules on boot
-    reload!
+    # NOTE: reload! is called at the end of this file, after all methods are defined.
 
     SETTINGS_ICON_SVG = <<~SVG unless defined?(SETTINGS_ICON_SVG)
       <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#2563eb" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -338,7 +337,7 @@ module NAUQ
         unless file_path && File.exist?(file_path)
           last_dir = Config.get(:last_cad_dir).to_s
           last_dir = '' unless File.directory?(last_dir)
-          file_path = UI.openpanel('Chọn file CAD DWG', last_dir, 'AutoCAD Files|*.dwg;*.DWG;*.dxf;*.DXF|All Files (*.*)|*.*||')
+          file_path = ::UI.openpanel('Chọn file CAD DWG', last_dir, 'AutoCAD Files|*.dwg;*.DWG;*.dxf;*.DXF|All Files (*.*)|*.*||')
         end
 
         return unless file_path && File.exist?(file_path)
@@ -522,7 +521,7 @@ module NAUQ
         model = Sketchup.active_model
         return unless model
 
-        tool = UI::SnapshotCropTool.new
+        tool = SnapshotCropTool.new
         model.select_tool(tool)
       end
 
@@ -536,7 +535,7 @@ module NAUQ
           
           # TODO: Implement door creation logic based on parameters
           # For now, just log the action
-          UI.messagebox("Manual door tool activated!\n\nWidth: #{width.round}mm\nHeight: #{height.round}mm\nType: #{door_type}\nPanels: #{panel_count}", MB_OK)
+          ::UI.messagebox("Manual door tool activated!\n\nWidth: #{width.round}mm\nHeight: #{height.round}mm\nType: #{door_type}\nPanels: #{panel_count}", MB_OK)
         end
         
         model.select_tool(tool)
@@ -573,11 +572,11 @@ module NAUQ
           model.commit_operation
           msg = hidden_count > 0 ? "Đã ẩn thành công #{hidden_count} nét trùng lặp!" : "Không tìm thấy nét giáp ranh / nét trùng nào cần ẩn."
           Sketchup.status_text = msg
-          UI.messagebox(msg, MB_OK)
+          ::UI.messagebox(msg, MB_OK)
         rescue StandardError => e
           model.abort_operation
           Logger.error("Lỗi khi ẩn nét trùng: #{e.message}\n#{e.backtrace.first(3).join("\n")}")
-          UI.messagebox("Lỗi khi ẩn nét trùng: #{e.message}", MB_OK)
+          ::UI.messagebox("Lỗi khi ẩn nét trùng: #{e.message}", MB_OK)
         end
       end
 
@@ -593,11 +592,11 @@ module NAUQ
           model.commit_operation
           msg = unhidden_count > 0 ? "Đã hiện lại #{unhidden_count} nét ẩn trong vùng chọn!" : "Không có nét ẩn nào trong vùng chọn."
           Sketchup.status_text = msg
-          UI.messagebox(msg, MB_OK)
+          ::UI.messagebox(msg, MB_OK)
         rescue StandardError => e
           model.abort_operation
           Logger.error("Lỗi khi hiện nét ẩn: #{e.message}\n#{e.backtrace.first(3).join("\n")}")
-          UI.messagebox("Lỗi khi hiện nét ẩn: #{e.message}", MB_OK)
+          ::UI.messagebox("Lỗi khi hiện nét ẩn: #{e.message}", MB_OK)
         end
       end
 
@@ -609,7 +608,7 @@ module NAUQ
           Logger.info("Đã tìm thấy bản vẽ CAD vừa copy từ AutoCAD (#{File.basename(latest_file)}, cách đây #{age_secs} giây).")
           run_pipeline(latest_file)
         else
-          choice = UI.messagebox(
+          choice = ::UI.messagebox(
             "Không tìm thấy dữ liệu CAD vừa Copy từ AutoCAD (hoặc lệnh Copy đã quá 30 giây).\n\n" \
             "👉 Cách thực hiện:\n" \
             "1. Mở file AutoCAD, quét chọn đối tượng và bấm Ctrl + C.\n" \
@@ -634,7 +633,7 @@ module NAUQ
 
         # 1. Menus
         begin
-          main_menu = UI.menu('Plugins') || UI.menu('Extensions') || UI.menu('Draw')
+          main_menu = ::UI.menu('Plugins') || ::UI.menu('Extensions') || ::UI.menu('Draw')
           if main_menu
             menu = main_menu.add_submenu(PLUGIN_NAME) rescue nil
             target_menu = menu || main_menu
@@ -672,9 +671,9 @@ module NAUQ
 
         # 2. Toolbar
         begin
-          tb = UI::Toolbar.new(PLUGIN_NAME)
+          tb = ::UI::Toolbar.new(PLUGIN_NAME)
 
-          cmd_settings = UI::Command.new('Settings') { open_settings }
+          cmd_settings = ::UI::Command.new('Settings') { open_settings }
           cmd_settings.menu_text = 'Cài đặt'
           cmd_settings.tooltip = 'Mở bảng Cài đặt NAUQ CAD TO 3D'
 
@@ -683,7 +682,7 @@ module NAUQ
             cmd_settings.large_icon = icons[:settings]
           end
 
-          cmd_run = UI::Command.new('Build3D') { paste_from_cad }
+          cmd_run = ::UI::Command.new('Build3D') { paste_from_cad }
           cmd_run.menu_text = '[TẠO 3D]'
           cmd_run.tooltip = 'Dán trực tiếp đối tượng vừa Ctrl+C từ AutoCAD để Tạo 3D'
 
@@ -692,7 +691,7 @@ module NAUQ
             cmd_run.large_icon = icons[:import]
           end
 
-          cmd_wallfill = UI::Command.new('WallFill') { activate_wallfill_tool }
+          cmd_wallfill = ::UI::Command.new('WallFill') { activate_wallfill_tool }
           cmd_wallfill.menu_text = 'Tạo Lanh-tô'
           cmd_wallfill.tooltip = 'Tạo Lanh-tô cửa đi & Bậu cửa sổ (Click vào mặt hốc tường đứng)'
 
@@ -701,7 +700,7 @@ module NAUQ
             cmd_wallfill.large_icon = icons[:wallfill]
           end
 
-          cmd_insert_door = UI::Command.new('InsertDoor') { activate_opening_door_tool }
+          cmd_insert_door = ::UI::Command.new('InsertDoor') { activate_opening_door_tool }
           cmd_insert_door.menu_text = 'Thêm Cửa'
           cmd_insert_door.tooltip = 'Thêm Cửa vào Opening (Click hốc tường | Bấm [Alt] để vẽ thủ công 2 điểm)'
 
@@ -710,7 +709,7 @@ module NAUQ
             cmd_insert_door.large_icon = icons[:insert_door]
           end
 
-          cmd_hide_overlap = UI::Command.new('HideOverlap') { hide_overlapping_edges }
+          cmd_hide_overlap = ::UI::Command.new('HideOverlap') { hide_overlapping_edges }
           cmd_hide_overlap.menu_text = 'Ẩn Nét Trùng'
           cmd_hide_overlap.tooltip = 'Ẩn các nét trùng lặp / giáp ranh giữa các khối tường, Group hoặc Component'
 
@@ -719,7 +718,7 @@ module NAUQ
             cmd_hide_overlap.large_icon = icons[:hide_overlap]
           end
 
-          cmd_resize = UI::Command.new('ResizeDoorWindow') { open_resize_dialog }
+          cmd_resize = ::UI::Command.new('ResizeDoorWindow') { open_resize_dialog }
           cmd_resize.menu_text = 'Resize Door/Window'
           cmd_resize.tooltip = 'Click chọn hoặc quét nhiều cửa trên mô hình để sửa kích thước Dài/Rộng/Cao nhanh'
 
@@ -728,7 +727,7 @@ module NAUQ
             cmd_resize.large_icon = icons[:resize]
           end
 
-          cmd_stair = UI::Command.new('StairBuilder') { open_stair_dialog }
+          cmd_stair = ::UI::Command.new('StairBuilder') { open_stair_dialog }
           cmd_stair.menu_text = 'Tạo Cầu Thang'
           cmd_stair.tooltip = 'Tạo Cầu Thang 3D chuẩn kết cấu thi công và phong thủy'
 
@@ -737,7 +736,7 @@ module NAUQ
             cmd_stair.large_icon = icons[:stair]
           end
 
-          cmd_snapshot = UI::Command.new('Snapshot3D') { capture_viewport_to_clipboard }
+          cmd_snapshot = ::UI::Command.new('Snapshot3D') { capture_viewport_to_clipboard }
           cmd_snapshot.menu_text = 'Chụp 3D sang Clipboard'
           cmd_snapshot.tooltip = 'Chụp góc nhìn 3D độ nét cao (1920x1080) và sao chép vào Clipboard (Ctrl+V để dán)'
 
@@ -765,7 +764,7 @@ module NAUQ
 
           # Right-click Context Menu
           begin
-            UI.add_context_menu_handler do |context_menu|
+            ::UI.add_context_menu_handler do |context_menu|
               sub = context_menu.add_submenu('NAUQ CAD to 3D')
               sub.add_item('Ẩn Nét Trùng Lặp (Hide Overlap)') { hide_overlapping_edges }
               sub.add_item('Hiện Nét Ẩn trong Vùng Chọn (Unhide Selected)') { unhide_all_edges }
@@ -781,8 +780,26 @@ module NAUQ
 # Alias for TT_CAD_TO_3D namespace compatibility
 TT_CAD_TO_3D = NAUQ::CadTo3D unless defined?(TT_CAD_TO_3D)
 
-# Initialize UI when loaded into SketchUp
+# Boot sequence: load all submodules, then initialize UI
+# This MUST be at the end of the file so all methods are defined first.
 if defined?(Sketchup)
-  NAUQ::CadTo3D.init_ui
+  puts '[NAUQ CAD TO 3D] === BOOT START ==='
+  begin
+    NAUQ::CadTo3D.reload!
+    puts '[NAUQ CAD TO 3D] === reload! OK ==='
+  rescue StandardError, ScriptError => e
+    puts "[NAUQ CAD TO 3D] === reload! FAILED: #{e.class}: #{e.message} ==="
+    puts e.backtrace.first(3).join("\n") if e.backtrace
+  end
+
+  begin
+    NAUQ::CadTo3D.init_ui
+    puts '[NAUQ CAD TO 3D] === init_ui OK ==='
+  rescue StandardError, ScriptError => e
+    puts "[NAUQ CAD TO 3D] === init_ui FAILED: #{e.class}: #{e.message} ==="
+    puts e.backtrace.first(3).join("\n") if e.backtrace
+  end
+
   file_loaded(__FILE__) unless file_loaded?(__FILE__)
+  puts '[NAUQ CAD TO 3D] === BOOT COMPLETE ==='
 end

@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 
 module NAUQ
-  module UI
+  module CadTo3D
     # Interactive Viewport Framing & Crop Tool for SketchUp
     # Cho phép kiến trúc sư điều chỉnh khung cắt, chọn tỉ lệ (16:9, 4:3, 1:1, 3:4, 9:16)
     # và độ phân giải xuất (2K/4K/FHD) trực quan trên màn hình rồi copy ngay vào Clipboard.
@@ -348,7 +348,7 @@ module NAUQ
         })
 
         unless File.exist?(raw_path) && File.size(raw_path) > 0
-          UI.messagebox("Không thể chụp ảnh từ khung nhìn SketchUp.", MB_OK)
+          ::UI.messagebox("Không thể chụp ảnh từ khung nhìn SketchUp.", MB_OK)
           return
         end
 
@@ -382,7 +382,7 @@ module NAUQ
         File.delete(raw_path) rescue nil
 
         Sketchup.status_text = "✓ Đã chụp & cắt khung hình #{crop_w}x#{crop_h}px lưu vào Clipboard! (Bấm Ctrl+V để dán)"
-        UI.messagebox("✓ Đã chụp và cắt ảnh thành công!\n\n• Kích thước: #{crop_w} x #{crop_h} px\n• Tỉ lệ: #{ASPECT_RATIOS[@aspect_index][:name]}\n• Đã sao chép vào Clipboard\n\nBạn chỉ cần bấm Ctrl+V trên trình duyệt (Google Flow / Zalo / Photoshop / AI) để dán ảnh ngay!", MB_OK)
+        ::UI.messagebox("✓ Đã chụp và cắt ảnh thành công!\n\n• Kích thước: #{crop_w} x #{crop_h} px\n• Tỉ lệ: #{ASPECT_RATIOS[@aspect_index][:name]}\n• Đã sao chép vào Clipboard\n\nBạn chỉ cần bấm Ctrl+V trên trình duyệt (Google Flow / Zalo / Photoshop / AI) để dán ảnh ngay!", MB_OK)
 
         Sketchup.active_model.select_tool(nil)
       end
