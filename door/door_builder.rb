@@ -73,6 +73,7 @@ module NAUQ
           built_count = 0
 
           door_openings.each do |op|
+            begin
           if op[:edge_left] && op[:edge_right]
               e_l_len = Geometry.inch_to_mm(op[:edge_left][0].distance(op[:edge_left][1]))
               e_r_len = Geometry.inch_to_mm(op[:edge_right][0].distance(op[:edge_right][1]))
@@ -120,6 +121,9 @@ module NAUQ
             Attribute.tag(door_assembly, 'door', id: op[:id], width: w_mm, leaf_count: leaf_count, source_cad_id: cad_id)
 
             built_count += 1
+            rescue StandardError => e
+              Logger.error("Lỗi khi tạo cửa #{op[:id]}: #{e.message}\n#{e.backtrace ? e.backtrace.first(6).join("\n") : ''}")
+            end
           end
 
           model.commit_operation

@@ -4,6 +4,14 @@ Toàn bộ lịch sử các phiên bản, các đợt tái cấu trúc kiến tr
 
 ---
 
+## [v1.9.8] - 2026-08-26 (Config Cleanup, Per-Door Error Isolation & Bottom Fix Constant)
+### Changed & Optimized
+- **Config Settings Cleanup (`Config`):** Dọn dẹp cấu hình không còn sử dụng (`global_tolerance`).
+- **Error Isolation in Door Loop (`DoorBuilder`):** Bổ sung khối `begin/rescue` độc lập cho từng cửa trong vòng lặp dựng cửa đi từ CAD để đảm bảo lỗi ở một vị trí không làm dừng toàn bộ pipeline.
+- **Window Bottom Fix Constant (`WindowBuilder`):** Chuẩn hóa hằng số `DEFAULT_FIX_BOTTOM_HEIGHT_MM = 400.0` cho các cửa sổ sát sàn (`z_offset < 200mm`).
+
+---
+
 ## [v1.9.7] - 2026-08-26 (Flexible Door/Window Grouping & Comprehensive Docs Synchronization)
 ### Added & Changed
 - **Flexible Opening Grouping (`DoorBuilder` & `WindowBuilder`):**

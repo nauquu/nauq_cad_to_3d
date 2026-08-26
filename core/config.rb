@@ -35,7 +35,6 @@ module NAUQ
         # Global settings
         frame_size: 50.0,     # mm
         glass_height: 350.0,  # mm
-        global_tolerance: 5.0, # mm
         door_grouping: 2,      # 2: separate doors/windows groups, 1: single group, 0: no group
         deduct_beam: false,    # boolean: trừ dầm 400mm và tạo sàn trên
         beam_depth: 400.0      # mm: chiều cao dầm/sàn
@@ -56,7 +55,6 @@ module NAUQ
           window_max_width: 900.0,
           frame_size: 50.0,
           glass_height: 350.0,
-          global_tolerance: 5.0,
           door_grouping: 2,
           deduct_beam: false,
           beam_depth: 400.0
@@ -75,7 +73,6 @@ module NAUQ
           window_max_width: 900.0,
           frame_size: 50.0,
           glass_height: 400.0,
-          global_tolerance: 5.0,
           door_grouping: 2,
           deduct_beam: true,
           beam_depth: 400.0
@@ -94,7 +91,6 @@ module NAUQ
           window_max_width: 900.0,
           frame_size: 45.0,
           glass_height: 0.0,
-          global_tolerance: 5.0,
           door_grouping: 2,
           deduct_beam: false,
           beam_depth: 400.0
@@ -113,7 +109,6 @@ module NAUQ
           window_max_width: 900.0,
           frame_size: 50.0,
           glass_height: 350.0,
-          global_tolerance: 5.0,
           door_grouping: 2,
           deduct_beam: false,
           beam_depth: 400.0
@@ -132,7 +127,6 @@ module NAUQ
           window_max_width: 900.0,
           frame_size: 50.0,
           glass_height: 350.0,
-          global_tolerance: 5.0,
           door_grouping: 2,
           deduct_beam: false,
           beam_depth: 400.0

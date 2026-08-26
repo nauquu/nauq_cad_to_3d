@@ -4,6 +4,8 @@ module NAUQ
   module CadTo3D
     # Generates 3D windows in NAUQ_WINDOWS group container
     module WindowBuilder
+      DEFAULT_FIX_BOTTOM_HEIGHT_MM = 400.0
+
       class << self
         # Procedurally generate a complete 3D window assembly
         # @param options [Hash]
@@ -184,7 +186,7 @@ module NAUQ
 
               z_off_mm = (op[:z_offset_mm] || Config.get(:window_offset) || 900.0).to_f
               has_bottom_fix = z_off_mm < 200.0
-              fix_bot_h_mm = has_bottom_fix ? (Config.get(:fix_bottom_height) || 400.0).to_f : 0.0
+              fix_bot_h_mm = has_bottom_fix ? DEFAULT_FIX_BOTTOM_HEIGHT_MM : 0.0
 
               panel_count = [(active_w.to_mm / max_win_w_mm).ceil, 1].max
 
