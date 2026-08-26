@@ -114,33 +114,59 @@ module NAUQ
 
           model.start_operation('NAUQ Build 3D Windows', true)
 
-          # Erase previous windows created for this specific CAD drawing if any
+          # Remove previous window geometry for this CAD source without touching doors.
+          grouping_mode = Config.get(:door_grouping).to_i
           if cad_id
-            existing_model = model.entities.grep(Sketchup::Group).select do |g|
-              g.valid? && (g.name == "WINDOWS_#{floor_name}" || (Attribute.get(g, 'source_cad_id') == cad_id && g.name.start_with?('WINDOWS_')))
-            end
-            existing_model.each { |g| g.erase! if g.valid? }
-
-            legacy_container = model.entities.grep(Sketchup::Group).find { |g| g.valid? && g.name == DWGReader::WINDOWS_GROUP_NAME }
-            if legacy_container
-              existing_sub = legacy_container.entities.grep(Sketchup::Group).select do |inst|
-                inst.valid? && Attribute.get(inst, 'source_cad_id') == cad_id
+            if grouping_mode == 2
+              existing = model.entities.grep(Sketchup::Group).find do |g|
+                g.valid? && g.name == "WINDOWS_#{floor_name}"
               end
-              existing_sub.each { |inst| inst.erase! if inst.valid? }
+              existing.erase! if existing&.valid?
+            elsif grouping_mode == 1
+              shared = model.entities.grep(Sketchup::Group).find do |g|
+                g.valid? && g.name == "OPENINGS_#{floor_name}"
+              end
+              if shared
+                shared.entities.to_a.each do |entity|
+                  if entity.valid? && Attribute.get(entity, 'type').to_s == 'window' && Attribute.get(entity, 'source_cad_id').to_s == cad_id.to_s
+                    entity.erase!
+                  end
+                end
+              end
+            else
+              model.entities.to_a.each do |entity|
+                if entity.valid? && entity.respond_to?(:entities) && Attribute.get(entity, 'type').to_s == 'window' && Attribute.get(entity, 'source_cad_id').to_s == cad_id.to_s
+                  entity.erase!
+                end
+              end
             end
           end
 
-          # Create independent group for this floor's windows directly at model root
+          # Resolve grouping mode from Settings.
+          # 2 = separate Door/Window groups, 1 = one shared group, 0 = no parent group.
+          grouping_mode = Config.get(:door_grouping).to_i
           model.selection.clear rescue nil
-          windows_group = model.entities.add_group
-          windows_group.name = "WINDOWS_#{floor_name}"
-          Attribute.tag(windows_group, 'window_floor', source_cad_id: cad_id)
+          windows_group = case grouping_mode
+                          when 2
+                            model.entities.add_group.tap do |g|
+                              g.name = "WINDOWS_#{floor_name}"
+                              Attribute.tag(g, 'window_floor', source_cad_id: cad_id)
+                            end
+                          when 1
+                            existing = model.entities.grep(Sketchup::Group).find { |g| g.valid? && g.name == "OPENINGS_#{floor_name}" }
+                            existing || model.entities.add_group.tap do |g|
+                              g.name = "OPENINGS_#{floor_name}"
+                              Attribute.tag(g, 'opening_floor', source_cad_id: cad_id)
+                            end
+                          else
+                            model.entities
+                          end
 
           max_win_w_mm = Config.get(:window_max_width) || 900.0
           frame_w = (Config.get(:frame_size) || 50.0).mm
 
           built_count = 0
-          target_entities = windows_group.entities
+          target_entities = windows_group.respond_to?(:entities) ? windows_group.entities : windows_group
 
           win_openings.each do |op|
             begin

@@ -4,6 +4,20 @@ Toàn bộ lịch sử các phiên bản, các đợt tái cấu trúc kiến tr
 
 ---
 
+## [v1.9.7] - 2026-08-26 (Flexible Door/Window Grouping & Comprehensive Docs Synchronization)
+### Added & Changed
+- **Flexible Opening Grouping (`DoorBuilder` & `WindowBuilder`):**
+  - Hỗ trợ 3 chế độ nhóm đối tượng từ cấu hình `door_grouping` (2 = nhóm riêng `DOORS_`/`WINDOWS_`, 1 = nhóm chung `OPENINGS_`, 0 = không nhóm).
+  - Tối ưu cơ chế xóa và tái tạo hình học cửa cũ theo `source_cad_id` an toàn, không xóa nhầm đối tượng khác.
+- **Workflow & Documentation Standards (`SKILL.md` & `AGENTS.md`):**
+  - Nâng cấp quy trình `commit-with-docs-and-version` để bắt buộc kiểm tra và đồng bộ toàn bộ tài liệu trong `docs/` (`CHANGELOG.md`, `PROJECT_MAP.md`, `API_CONTRACT.md`, `ARCHITECTURE.md`, `MODULE_RULES.md`, `README.md`).
+  - Đồng bộ `PROJECT_MAP.md` và `API_CONTRACT.md` với các chữ ký hàm và kiến trúc mới nhất.
+
+### Removed
+- **Removed Unused Modules:** Xóa `library/template_loader.rb` không còn sử dụng.
+
+---
+
 ## [v1.9.6] - 2026-08-25 (Sliding Door Exact Frame Stile Overlap & Depth Offset)
 ### Changed & Optimized
 - **Sliding Leaf Frame Stile Overlap (`DoorGenerator` & `WindowBuilder`):**

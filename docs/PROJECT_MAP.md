@@ -40,22 +40,21 @@ NAU_CAD_TO_3D/
 │   └── opening_normalizer.rb    # Snaps openings to wall reference, calculates depth & aligns
 │
 ├── door/
-│   ├── door_builder.rb          # Coordinates door generation across openings
-│   ├── door_generator.rb        # Parametric door generator (V20 architecture)
+│   ├── door_builder.rb          # Coordinates automatic door generation across CAD openings with flexible grouping modes
+│   ├── door_generator.rb        # Parametric door generator (V20 architecture, swing & 2-track sliding support)
 │   ├── frame_builder.rb         # Door & window frame 3D geometry builder with transom support
-│   ├── leaf_builder.rb          # Door & window leaf/panel 3D builder (FollowMe algorithm)
-│   ├── glass_builder.rb         # Transom & glass insert builder
-│   └── opening_door_tool.rb     # Interactive raycast door placement tool for wall openings
+│   ├── leaf_builder.rb          # Door & window leaf 3D builder (FollowMe algorithm with embedded leaf glass)
+│   ├── glass_builder.rb         # Transom & fix glass panel builder with custom Y offsets
+│   └── opening_door_tool.rb     # Interactive raycast door placement tool with opening highlight & flush exterior alignment
 │
 ├── window/
-│   └── window_builder.rb        # Parametric window 3D geometry builder with transom support
+│   └── window_builder.rb        # Parametric window 3D geometry builder with flexible grouping modes
 │
 ├── stair/
 │   ├── stair_builder.rb         # Parametric concrete/wood stair generator with landing & feng-shui steps
 │   └── railing_builder.rb       # Glass, metal, and wood staircase railing & handrail builder
 │
 ├── library/
-│   ├── template_loader.rb       # Dynamic component / SKP template loader
 │   ├── material_loader.rb       # Architectural materials & color palettes
 │   └── materials.json           # Material definitions
 │

@@ -80,5 +80,20 @@ Tài liệu định nghĩa chi tiết các hàm, tham số đầu vào, kiểu d
 - `normalize_all(raw_openings, walls_group, cad_group)` $\rightarrow$ `Array<Opening>`
 
 ### 2.7 `DoorBuilder` / `WindowBuilder`
-- `build_doors(openings, container, cad_group)` $\rightarrow$ `Array<ComponentInstance>`
-- `build_windows(openings, container, cad_group)` $\rightarrow$ `Array<ComponentInstance>`
+- `DoorBuilder.build_doors(openings, container, cad_group)` $\rightarrow$ `void`
+- `WindowBuilder.build_windows(openings, container, cad_group)` $\rightarrow$ `void`
+
+### 2.8 `DoorGenerator` / `WindowBuilder` (Parametric 3D Assembly Generators)
+- `DoorGenerator.generate(parent:, name:, width:, height:, panel_count:, is_sliding: false, ...)` $\rightarrow$ `Sketchup::Group`
+- `WindowBuilder.generate(parent:, name:, width:, height:, panel_count:, is_sliding: false, ...)` $\rightarrow$ `Sketchup::Group`
+
+### 2.9 `LeafBuilder` & `GlassBuilder`
+- `LeafBuilder.get_or_create_leaf_definition(model, leaf_width, leaf_height, frame_material, glass_material, prefix)` $\rightarrow$ `Sketchup::ComponentDefinition`
+- `LeafBuilder.create_leaf_instance(parent_group, definition, index, leaf_width, exact_x:, material:)` $\rightarrow$ `Sketchup::ComponentInstance`
+- `GlassBuilder.build_panel(parent_group, x0, x1, z0, z1, material, name, y_offset:)` $\rightarrow$ `Sketchup::Group | nil`
+- `GlassBuilder.build_layout_glasses(parent_group, layout, material, include_active: false)` $\rightarrow$ `Array<Sketchup::Group>`
+
+### 2.10 `OpeningDoorTool` (Interactive Placement Tool)
+- `OpeningDoorTool#activate` / `deactivate`
+- `OpeningDoorTool#detect_opening_from_context(context)` $\rightarrow$ `Hash | nil` (Opening alignment & coordinate definition)
+
