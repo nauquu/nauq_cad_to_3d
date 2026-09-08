@@ -3,6 +3,9 @@
 module NAUQ
   module CadTo3D
     # Builds the single NAUQ_WALLS group from Wall Face 2D source of truth.
+    # Wall geometry is intentionally built in the ROOT model context
+    # (model.entities), never inside the user's active group/component.
+    # rubocop:disable SketchupSuggestions/ModelEntities
     #
     # WallBuilder has two explicit phases:
     #   1. build_wall_reference  — creates cleaned edges + find_faces to produce
@@ -260,7 +263,7 @@ module NAUQ
           base_z = cleaned_pairs.flatten.map(&:z).min
           wall_top = base_z + height_in
 
-          model.start_operation('Prepare NAUQ Wall Reference', true)
+          model.start_operation('Prepare NAUQ Walls', true)
 
           begin
             # Create isolated temporary group for reference faces so existing walls are preserved

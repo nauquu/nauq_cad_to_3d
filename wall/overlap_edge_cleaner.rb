@@ -210,9 +210,11 @@ module NAUQ
           return 0 unless model
 
           selection = model.selection
-          target_entities = selection.empty? ? model.entities : selection
+          # Fallback to the ROOT model context is intentional: with no
+          # selection the cleaner sweeps all root-level wall edges.
+          target_entities = selection.empty? ? model.entities : selection # rubocop:disable SketchupSuggestions/ModelEntities
 
-          model.start_operation('NAUQ Hiện Nét Ẩn Vùng Chọn', true)
+          model.start_operation('NAUQ Hiện Nét Ẩn', true)
           unhidden_count = 0
           unsoftened_count = 0
           unhidden_groups = 0

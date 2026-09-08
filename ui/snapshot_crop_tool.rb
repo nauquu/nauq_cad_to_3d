@@ -95,6 +95,16 @@ module NAUQ
         view.invalidate if view
       end
 
+      def suspend(view)
+        view.invalidate if view
+      end
+
+      # Framing overlay is drawn in screen space; the model bounds keep the
+      # overlay from being clipped.
+      def getExtents
+        Sketchup.active_model.bounds
+      end
+
       def resume(view)
         update_status_text
         view.invalidate if view

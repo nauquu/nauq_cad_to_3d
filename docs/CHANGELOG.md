@@ -4,6 +4,28 @@ Toàn bộ lịch sử các phiên bản, các đợt tái cấu trúc kiến tr
 
 ---
 
+## [v1.9.11] - 2026-09-08 (RuboCop-SketchUp Full Suggestion Audit)
+
+### Changed
+- **Undo operation names shortened:** All `start_operation` names are now ≤ 25 characters and Title Case per `SketchupSuggestions/OperationName` — "NAUQ Thêm Cửa từ Selection" → "NAUQ Thêm Cửa Từ Chọn", "NAUQ Di chuyển Cửa Realtime" → "NAUQ Di Chuyển Cửa", "NAUQ Chuẩn hóa Cửa theo Lỗ mở Tường" → "NAUQ Chuẩn Hóa Cửa", "NAUQ Hiện Nét Ẩn Vùng Chọn" → "NAUQ Hiện Nét Ẩn", "Prepare NAUQ Wall Reference" → "Prepare NAUQ Walls", "NAUQ Tạo Lanh-tô / WallFill" → "NAUQ Tạo Lanh Tô", "NAUQ Organize CAD Architecture" → "NAUQ Organize CAD" (`door/opening_door_tool.rb`, `ui/resize_tool_dialog.rb`, `wall/overlap_edge_cleaner.rb`, `wall/wall_builder.rb`, `wall/wall_fill_tool.rb`, `import/dwg_reader.rb`).
+- **Tool viewport callbacks completed:** Every tool that draws overlays now implements `getExtents` (prevents clipped preview geometry) and `suspend` calling `view.invalidate` (no ghost overlays after switching tools); `WallFillTool` also gained `deactivate` cleanup and `enableVCB?` for typed dimension input (`door/opening_door_tool.rb`, `ui/replace_dialog.rb`, `ui/resize_tool_dialog.rb` × 2 tools, `ui/snapshot_crop_tool.rb`, `wall/wall_fill_tool.rb` — `SketchupSuggestions/ToolDrawingBounds` / `ToolInvalidate` / `ToolUserInput`).
+- **`__FILE__` / `__dir__` encoding hardened:** Paths are now duplicated and `force_encoding('UTF-8')` before use, avoiding the Windows Ruby encoding bug that raises exceptions for non-ASCII user profiles (`SketchupSuggestions/FileEncoding`) — `nauq_cad_to_3d.rb`, `library/material_loader.rb`, `ui/stair_dialog.rb`.
+
+### Notes
+- **Documented intentional root-context construction:** `model.entities` usage in `door/door_builder.rb`, `window/window_builder.rb`, `wall/wall_builder.rb`, `import/dwg_reader.rb` and `ui/placement_tool.rb` is by design (all generated geometry must land in top-level NAUQ_* groups regardless of the user's active context). These now carry explained `rubocop:disable SketchupSuggestions/ModelEntities` / `AddGroup` directives instead of unexplained warnings.
+- **Audit result:** `rubocop-sketchup 2.1.1` now reports **0 offenses** (Requirements + Suggestions) for the packaged `.rbz`.
+
+---
+## [v1.9.10] - 2026-09-08 (RuboCop-SketchUp Requirement Fixes)
+
+### Fixed
+- **Global constant removed (`nauq_cad_to_3d.rb`):** Deleted the legacy top-level `TT_CAD_TO_3D = NAUQ::CadTo3D` alias. Top-level constants pollute the global namespace and conflict with other extensions (`SketchupRequirements/GlobalConstants`); nothing in the codebase referenced the alias.
+- **Transparent operation in observer (`ui/placement_tool.rb`):** `model.start_operation` inside the `CADPlacementObserver#onActiveToolChanged` callback now passes `transparent = true` (4th argument), so the automatic CAD reorganization chains onto the user's undo step instead of creating a separate undo entry (`SketchupRequirements/ObserversStartOperation`).
+- **Audit result:** `rubocop-sketchup 2.1.1` now reports **0 errors** (Requirements) for the packaged `.rbz`. Remaining offenses are advisory `SketchupSuggestions` (non-blocking).
+
+---
+
+
 ## [v1.9.9] - 2026-09-08 (Extension Warehouse Resubmission Fixes)
 
 ### Fixed

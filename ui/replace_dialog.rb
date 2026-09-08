@@ -38,6 +38,16 @@ module NAUQ
           view.invalidate
         end
 
+        def suspend(view)
+          view.invalidate
+        end
+
+        # Highlight overlays follow model entities; the full model bounds
+        # guarantee the drawn overlay is never clipped.
+        def getExtents
+          Sketchup.active_model.bounds
+        end
+
         def onMouseMove(flags, x, y, view)
           if @drag_start
             @drag_current = Geom::Point3d.new(x, y, 0)

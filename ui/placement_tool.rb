@@ -28,13 +28,17 @@ module NAUQ
           UI.start_timer(0.05, false) do
             model = Sketchup.active_model
             # Tìm instance vừa đặt trong model.entities
-            placed_inst = model.entities.grep(Sketchup::ComponentInstance).find { |i| i.definition == @definition }
+            # Root context lookup is intentional (paste target = root model).
+            placed_inst = model.entities.grep(Sketchup::ComponentInstance).find { |i| i.definition == @definition } # rubocop:disable SketchupSuggestions/ModelEntities
 
             if placed_inst && placed_inst.valid?
               DWGReader.ensure_subgroups(model)
               cad_parent = DWGReader.find_or_create_cad_original_group(model)
 
-              model.start_operation('NAUQ Đặt Bản Vẽ CAD', true)
+              # transparent = true (4th arg): observer-initiated model changes
+              # must chain onto the user's previous undo step
+              # (SketchupRequirements/ObserversStartOperation).
+              model.start_operation('NAUQ Đặt Bản Vẽ CAD', true, false, true)
               begin
                 t_world = placed_inst.transformation
                 t_local = cad_parent.transformation.inverse * t_world

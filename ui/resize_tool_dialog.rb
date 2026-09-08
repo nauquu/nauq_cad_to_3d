@@ -41,6 +41,16 @@ module NAUQ
           view.invalidate
         end
 
+        def suspend(view)
+          view.invalidate
+        end
+
+        # Highlight overlays follow model entities; the full model bounds
+        # guarantee the drawn overlay is never clipped.
+        def getExtents
+          Sketchup.active_model.bounds
+        end
+
         def onMouseMove(flags, x, y, view)
           if @drag_start
             @drag_current = Geom::Point3d.new(x, y, 0)
@@ -433,6 +443,22 @@ module NAUQ
           view.invalidate
         end
 
+        def suspend(view)
+          view.invalidate
+        end
+
+        # Guide line and distance badge follow the moved targets; provide
+        # extents so the realtime overlay is not clipped.
+        def getExtents
+          bb = Geom::BoundingBox.new
+          first = @targets.first
+          if first && first.valid?
+            bb.add(@first_center - (@u_dir * 120.0))
+            bb.add(@first_center + (@u_dir * 120.0))
+          end
+          bb
+        end
+
         def enableVCB?
           true
         end
@@ -513,7 +539,7 @@ module NAUQ
             return cancel_move
           end
 
-          @model.start_operation('NAUQ Di chuyển Cửa Realtime', true)
+          @model.start_operation('NAUQ Di Chuyển Cửa', true)
           begin
             walls_group = DWGReader.find_or_create_walls_group(@model)
             t_shift = Geom::Transformation.translation(Geom::Vector3d.new(delta, 0, 0))
@@ -854,7 +880,7 @@ module NAUQ
             return
           end
 
-          model.start_operation('NAUQ Chuẩn hóa Cửa theo Lỗ mở Tường', true)
+          model.start_operation('NAUQ Chuẩn Hóa Cửa', true)
           begin
             synced_count = 0
             new_targets = []
@@ -1243,7 +1269,9 @@ module NAUQ
             wg.entities.grep(Sketchup::Group).each { |sub| all_groups << sub if sub.valid? }
           end
 
-          model.entities.grep(Sketchup::Group).each do |g|
+          # Root-level scan is intentional: NAUQ walls groups live in the
+          # ROOT model context regardless of the user's active context.
+          model.entities.grep(Sketchup::Group).each do |g| # rubocop:disable SketchupSuggestions/ModelEntities
             next unless g.valid?
             name = (g.name || '').upcase
             if name.include?('NAUQ_WALL') || name.include?('WALL') || Attribute.tagged_as?(g, 'wall')

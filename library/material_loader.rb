@@ -105,7 +105,11 @@ module NAUQ
         private
 
         def default_json_path
-          File.join(File.dirname(__FILE__), 'materials.json')
+          # __FILE__ may carry the wrong encoding on Windows; force UTF-8
+          # (SketchupSuggestions/FileEncoding workaround).
+          lib_file = __FILE__.dup
+          lib_file.force_encoding('UTF-8') if lib_file.respond_to?(:force_encoding)
+          File.join(File.dirname(lib_file), 'materials.json')
         end
       end
     end

@@ -36,3 +36,15 @@ Tài liệu quy định các nguyên tắc bất biến (Invariants), giới h�
   - Snap điểm nối nét (Vertex Clustering): `10.0 mm`
   - Sai số khoảng cách điểm tới mặt phẳng (Point-to-Plane): `5.0 mm`
   - Sai số song song giữa 2 vector: `0.001 radian (~0.05 độ)`
+
+---
+
+## 3. Code Quality / Lint (RuboCop-SketchUp)
+
+Toàn bộ codebase phải giữ **0 offenses** khi quét bằng `rubocop-sketchup` (config mặc định của gem) — đây là bộ công cụ reviewer Extension Warehouse dùng để kiểm tra extension.
+
+1. **Tên operation (Undo):** `start_operation` tối đa **25 ký tự**, Title Case, không dấu câu, không đuôi `.rbe/.rb` — theo `SketchupSuggestions/OperationName`.
+2. **Tool vẽ overlay:** Mọi tool có `draw` bắt buộc implement `getExtents` (tránh bị cắt góc) và `suspend`/`deactivate` phải gọi `view.invalidate`; tool nhận input qua VCB phải có `enableVCB?`.
+3. **`__FILE__` / `__dir__`:** Luôn `dup` + `force_encoding('UTF-8')` trước khi dùng (bug encoding Windows trên máy có tên user không phải ASCII).
+4. **Root-context `model.entities` / `add_group`:** Cho phép ngoại lệ có chủ đích (build vào group container cấp gốc `NAUQ_*` bất kể active context), nhưng **bắt buộc** kèm directive `# rubocop:disable SketchupSuggestions/ModelEntities` (hoặc `AddGroup`) và **comment giải thích lý do** ngay tại dòng/module đó.
+5. **Console output:** Chỉ in qua `NAUQ::CadTo3D.debug_puts` (gated bởi `DEBUG_MODE`), không dùng `puts` trần — yêu cầu của Extension Warehouse.

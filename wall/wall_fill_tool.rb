@@ -31,6 +31,30 @@ module NAUQ
         view.invalidate
       end
 
+      def deactivate(view)
+        @preview_points = nil
+        view.invalidate
+      end
+
+      def suspend(view)
+        view.invalidate
+      end
+
+      # Lintel/sill preview is drawn to the viewport; provide extents so the
+      # preview is never clipped (SketchupSuggestions/ToolDrawingBounds).
+      def getExtents
+        bb = Geom::BoundingBox.new
+        (@preview_points || []).each do |pts|
+          pts.each { |pt| bb.add(pt) }
+        end
+        bb
+      end
+
+      # The VCB accepts typed wallfill heights (see onUserText).
+      def enableVCB?
+        true
+      end
+
       def update_status_text
         h_mm = @mode == :door ? @door_height.to_mm.round(0) : "#{@sill_height.to_mm.round(0)},#{@window_top.to_mm.round(0)}"
         mode_str = @mode == :door ? "CỬA ĐI (Lanh-tô: #{h_mm}mm)" : "CỬA SỔ (Bậu/Lanh-tô: #{h_mm}mm)"
@@ -87,7 +111,7 @@ module NAUQ
         end
 
         model = Sketchup.active_model
-        model.start_operation('NAUQ Tạo Lanh-tô / WallFill', true)
+        model.start_operation('NAUQ Tạo Lanh Tô', true)
 
         begin
           success = if @mode == :door

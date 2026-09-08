@@ -3,6 +3,9 @@
 module NAUQ
   module CadTo3D
     # Generates 3D doors in NAUQ_DOORS group container (Phase 4)
+    # All door geometry is intentionally built in the ROOT model context
+    # (model.entities), never inside the user's active group/component.
+    # rubocop:disable SketchupSuggestions/ModelEntities
     module DoorBuilder
       class << self
         # Build all doors based on detected openings

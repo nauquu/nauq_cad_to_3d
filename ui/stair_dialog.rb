@@ -73,8 +73,12 @@ module NAUQ
               model.start_operation('NAUQ Tạo Cầu Thang 3D', true)
 
               begin
-                load File.join(__dir__, '../stair/railing_builder.rb') rescue nil
-                load File.join(__dir__, '../stair/stair_builder.rb') rescue nil
+                # __dir__ may carry the wrong encoding on Windows; force UTF-8
+                # (SketchupSuggestions/FileEncoding workaround).
+                dialog_dir = __dir__.dup
+                dialog_dir.force_encoding('UTF-8') if dialog_dir.respond_to?(:force_encoding)
+                load File.join(dialog_dir, '../stair/railing_builder.rb') rescue nil
+                load File.join(dialog_dir, '../stair/stair_builder.rb') rescue nil
                 stair_group = StairBuilder.build(data_hash)
                 if stair_group && stair_group.valid?
                   # Chuyển thành Component để dính trực tiếp vào con trỏ chuột (Interactive Placement)

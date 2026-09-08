@@ -11,7 +11,7 @@ module NAUQ
   module CadTo3D
     PLUGIN_ID = 'NAUQ_CAD_TO_3D' unless defined?(PLUGIN_ID)
     PLUGIN_NAME = 'NAUQ CAD to 3D' unless defined?(PLUGIN_NAME)
-    PLUGIN_VERSION = '1.9.9' unless defined?(PLUGIN_VERSION)
+    PLUGIN_VERSION = '1.9.11' unless defined?(PLUGIN_VERSION)
 
     # Set to true to print debug messages to the Ruby Console.
     # Extension Warehouse requires extensions to remain silent unless debug
@@ -26,7 +26,11 @@ module NAUQ
 
       # Function to load / reload all internal submodules
       def reload!
-        root_dir = File.dirname(__FILE__)
+        # __FILE__ may carry the wrong encoding on Windows; force UTF-8
+        # (SketchupSuggestions/FileEncoding workaround).
+        plugin_file = __FILE__.dup
+        plugin_file.force_encoding('UTF-8') if plugin_file.respond_to?(:force_encoding)
+        root_dir = File.dirname(plugin_file)
 
         submodules = [
           'core/config.rb',
@@ -750,9 +754,6 @@ module NAUQ
       end
     end
   end
-
-# Alias for TT_CAD_TO_3D namespace compatibility
-TT_CAD_TO_3D = NAUQ::CadTo3D unless defined?(TT_CAD_TO_3D)
 
 # Boot sequence: load all submodules, then initialize UI
 # This MUST be at the end of the file so all methods are defined first.

@@ -3,6 +3,9 @@
 module NAUQ
   module CadTo3D
     # Generates 3D windows in NAUQ_WINDOWS group container
+    # All window geometry is intentionally built in the ROOT model context
+    # (model.entities), never inside the user's active group/component.
+    # rubocop:disable SketchupSuggestions/ModelEntities
     module WindowBuilder
       DEFAULT_FIX_BOTTOM_HEIGHT_MM = 400.0
 

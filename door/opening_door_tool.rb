@@ -58,6 +58,36 @@ module NAUQ
         view.invalidate rescue nil
       end
 
+      def suspend(view)
+        view.invalidate rescue nil
+      end
+
+      # Opening highlight is drawn to the viewport; provide extents so the
+      # overlay is never clipped (SketchupSuggestions/ToolDrawingBounds).
+      def getExtents
+        bb = Geom::BoundingBox.new
+        if (op = @hover_opening)
+          org = op[:origin]
+          xv = op[:x_axis]
+          yv = op[:y_axis]
+          zv = op[:z_axis]
+          w = op[:width_len]
+          h = op[:height_len]
+          d = FRAME_DEPTH
+          [
+            org,
+            org.offset(xv, w),
+            org.offset(zv, h),
+            org.offset(xv, w).offset(zv, h),
+            org.offset(yv, d),
+            org.offset(xv, w).offset(yv, d),
+            org.offset(zv, h).offset(yv, d),
+            org.offset(xv, w).offset(zv, h).offset(yv, d)
+          ].each { |pt| bb.add(pt) }
+        end
+        bb
+      end
+
       def update_status_text
         type_name = current_type_label
         flip_str = @flipped ? ' [Mặt trong]' : ' [Mặt ngoài]'
@@ -415,7 +445,7 @@ module NAUQ
       def create_from_selected_faces(faces)
         model = Sketchup.active_model
         count = 0
-        model.start_operation('NAUQ Thêm Cửa từ Selection', true)
+        model.start_operation('NAUQ Thêm Cửa Từ Chọn', true)
 
         faces.each do |face|
           next unless face.valid? && face.normal.z.abs <= 0.2

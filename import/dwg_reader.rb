@@ -2,6 +2,9 @@
 
 require 'set'
 
+# DWG import must read the ROOT model context and regroup imported CAD
+# geometry into the NAUQ_CAD_ORIGINAL container by design.
+# rubocop:disable SketchupSuggestions/ModelEntities, SketchupSuggestions/AddGroup
 module NAUQ
   module CadTo3D
     # Handles importing DWG files and managing top-level group architecture
@@ -151,7 +154,7 @@ module NAUQ
           end
 
           # Step 4: Now wrap architectural group organization in a single operation
-          model.start_operation('NAUQ Organize CAD Architecture', true)
+          model.start_operation('NAUQ Organize CAD', true)
 
           begin
             Progress.update(30, 'Đang tổ chức CAD vào NAUQ_CAD_ORIGINAL...') if defined?(Progress)
