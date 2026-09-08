@@ -64,7 +64,8 @@ module NAUQ
                   presets: Config.presets,
                   active_preset: name
                 }
-                dialog.execute_script("updatePresetsList(#{res.to_json}); showToast('Đã lưu cấu hình: #{name}');")
+                toast_msg = "Đã lưu cấu hình: #{name}"
+                dialog.execute_script("updatePresetsList(#{res.to_json}); showToast(#{toast_msg.to_json});")
               end
             end
           end
@@ -76,7 +77,8 @@ module NAUQ
                 presets: Config.presets,
                 active_preset: Config.active_preset
               }
-              dialog.execute_script("updatePresetsList(#{res.to_json}); showToast('Đã xóa cấu hình: #{utf8_name}');")
+              toast_msg = "Đã xóa cấu hình: #{utf8_name}"
+              dialog.execute_script("updatePresetsList(#{res.to_json}); showToast(#{toast_msg.to_json});")
             end
           end
 

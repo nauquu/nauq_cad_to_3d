@@ -4,6 +4,16 @@ Toàn bộ lịch sử các phiên bản, các đợt tái cấu trúc kiến tr
 
 ---
 
+## [v1.9.9] - 2026-09-08 (Extension Warehouse Resubmission Fixes)
+
+### Fixed
+- **Extension Registration (`.rb` extension removed):** Root loader no longer hardcodes the `.rb` file extension in `SketchupExtension.new(...)` (`nauq_cad_to_3d/nauq_cad_to_3d.rb` → `nauq_cad_to_3d/nauq_cad_to_3d`). Extension Warehouse encrypts `.rb` files into `.rbe`, so the registered path must omit the extension or the extension fails to load.
+- **Ruby Console output gated behind debug mode:** All console `puts` (boot/reload status, module load results, warnings and `Logger` entries) now print only when `DEBUG_MODE` is set to `true`. Production builds keep the console clean; important diagnostics still reach end users through the in-extension Error Report dialog.
+- **HTML injection fix (`ui/report_dialog.rb`):** Error-report messages are now HTML-escaped by a new `escape_html` helper (matches `CGI.escapeHTML` behavior without requiring the `cgi` stdlib) before being interpolated into the dialog, so user-typed layer names, CAD file paths or exception messages containing `<`, `>`, `&`, quotes can no longer break the page markup or inject markup.
+- **Robust JS escaping in `execute_script` (`ui/resize_tool_dialog.rb`, `ui/replace_dialog.rb`, `ui/settings_dialog.rb`):** Replaced hand-rolled `gsub` escaping with `to_json` when passing dynamic strings into `showStatus(...)` / `showToast(...)` — covers all JS-significant characters (`\`, quotes, newlines, `<`, U+2028 line separators, etc.) without keeping an escape list by hand.
+
+---
+
 ## [v1.9.8] - 2026-08-26 (Config Cleanup, Per-Door Error Isolation & Bottom Fix Constant)
 ### Changed & Optimized
 - **Config Settings Cleanup (`Config`):** Dọn dẹp cấu hình không còn sử dụng (`global_tolerance`).

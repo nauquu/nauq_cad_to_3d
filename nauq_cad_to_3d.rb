@@ -11,10 +11,20 @@ module NAUQ
   module CadTo3D
     PLUGIN_ID = 'NAUQ_CAD_TO_3D' unless defined?(PLUGIN_ID)
     PLUGIN_NAME = 'NAUQ CAD to 3D' unless defined?(PLUGIN_NAME)
-    PLUGIN_VERSION = '1.9.8' unless defined?(PLUGIN_VERSION)
+    PLUGIN_VERSION = '1.9.9' unless defined?(PLUGIN_VERSION)
 
-    # Function to load / reload all internal submodules
+    # Set to true to print debug messages to the Ruby Console.
+    # Extension Warehouse requires extensions to remain silent unless debug
+    # mode is enabled, so keep this false in production builds.
+    DEBUG_MODE = false unless defined?(DEBUG_MODE)
+
     class << self
+      # Print to the Ruby Console only while debug mode is enabled
+      def debug_puts(msg)
+        puts msg if defined?(DEBUG_MODE) && DEBUG_MODE
+      end
+
+      # Function to load / reload all internal submodules
       def reload!
         root_dir = File.dirname(__FILE__)
 
@@ -70,8 +80,8 @@ module NAUQ
             # puts "[NAUQ CAD TO 3D] ✓ Loaded: #{mod}"  # Uncomment for debug
           rescue StandardError, ScriptError => e
             error_msg = "[NAUQ CAD TO 3D] ✗ Error loading #{mod}: #{e.message}"
-            puts error_msg
-            puts "  Location: #{e.backtrace.first}" if e.backtrace && !e.backtrace.empty?
+            debug_puts(error_msg)
+            debug_puts("  Location: #{e.backtrace.first}") if e.backtrace && !e.backtrace.empty?
             
             # Log to Logger module if available
             if defined?(Logger) && Logger.respond_to?(:error)
@@ -83,7 +93,7 @@ module NAUQ
           end
         end
 
-        puts '[NAUQ CAD TO 3D] Đã nạp lại toàn bộ module thành công!'
+        debug_puts('[NAUQ CAD TO 3D] Đã nạp lại toàn bộ module thành công!')
         true
       end
     end
@@ -436,7 +446,7 @@ module NAUQ
           DoorBuilder.build_doors(normalized_openings, nil, cad_group) if defined?(DoorBuilder)
           WindowBuilder.build_windows(normalized_openings, nil, cad_group) if defined?(WindowBuilder)
         else
-          puts '[NAUQ ERROR] Wall reference preparation returned nil!'
+          debug_puts('[NAUQ ERROR] Wall reference preparation returned nil!')
           Logger.error('--- Wall reference preparation failed. ---')
         end
 
@@ -557,44 +567,11 @@ module NAUQ
       end
 
       def hide_overlapping_edges
-        model = Sketchup.active_model
-        return unless model
-
-        # Collect targets from selection, or whole model if nothing selected
-        targets = model.selection.empty? ? model.entities : model.selection
-
-        model.start_operation('Hide Overlapping Edges', true)
-        begin
-          hidden_count = Core::GeometryHelper.hide_coplanar_overlap_edges(targets)
-          model.commit_operation
-          msg = hidden_count > 0 ? "Đã ẩn thành công #{hidden_count} nét trùng lặp!" : "Không tìm thấy nét giáp ranh / nét trùng nào cần ẩn."
-          Sketchup.status_text = msg
-          ::UI.messagebox(msg, MB_OK)
-        rescue StandardError => e
-          model.abort_operation
-          Logger.error("Lỗi khi ẩn nét trùng: #{e.message}\n#{e.backtrace.first(3).join("\n")}")
-          ::UI.messagebox("Lỗi khi ẩn nét trùng: #{e.message}", MB_OK)
-        end
+        OverlapEdgeCleaner.hide_overlapping_edges
       end
 
       def unhide_all_edges
-        model = Sketchup.active_model
-        return unless model
-
-        targets = model.selection.empty? ? model.entities : model.selection
-
-        model.start_operation('Unhide All Edges', true)
-        begin
-          unhidden_count = Core::GeometryHelper.unhide_all_edges(targets)
-          model.commit_operation
-          msg = unhidden_count > 0 ? "Đã hiện lại #{unhidden_count} nét ẩn trong vùng chọn!" : "Không có nét ẩn nào trong vùng chọn."
-          Sketchup.status_text = msg
-          ::UI.messagebox(msg, MB_OK)
-        rescue StandardError => e
-          model.abort_operation
-          Logger.error("Lỗi khi hiện nét ẩn: #{e.message}\n#{e.backtrace.first(3).join("\n")}")
-          ::UI.messagebox("Lỗi khi hiện nét ẩn: #{e.message}", MB_OK)
-        end
+        OverlapEdgeCleaner.unhide_selected_edges
       end
 
       # Paste from AutoCAD (Ctrl+C / COPYCLIP from AutoCAD within 30 seconds)
@@ -663,7 +640,7 @@ module NAUQ
             end
           end
         rescue StandardError, ScriptError => e
-          puts "[NAUQ CAD TO 3D] Warning: Menu creation skipped: #{e.message}"
+          debug_puts("[NAUQ CAD TO 3D] Warning: Menu creation skipped: #{e.message}")
         end
 
         # 2. Toolbar
@@ -756,7 +733,7 @@ module NAUQ
 
           @toolbar = tb
         rescue StandardError, ScriptError => e
-          puts "[NAUQ CAD TO 3D] Warning: Toolbar creation skipped: #{e.message}"
+          debug_puts("[NAUQ CAD TO 3D] Warning: Toolbar creation skipped: #{e.message}")
         end
 
           # Right-click Context Menu
@@ -767,7 +744,7 @@ module NAUQ
               sub.add_item('Hiện Nét Ẩn trong Vùng Chọn (Unhide Selected)') { unhide_all_edges }
             end
           rescue StandardError, ScriptError => e
-            puts "[NAUQ CAD TO 3D] Warning: Context menu creation skipped: #{e.message}"
+            debug_puts("[NAUQ CAD TO 3D] Warning: Context menu creation skipped: #{e.message}")
           end
         end
       end
@@ -780,23 +757,23 @@ TT_CAD_TO_3D = NAUQ::CadTo3D unless defined?(TT_CAD_TO_3D)
 # Boot sequence: load all submodules, then initialize UI
 # This MUST be at the end of the file so all methods are defined first.
 if defined?(Sketchup)
-  puts '[NAUQ CAD TO 3D] === BOOT START ==='
+  NAUQ::CadTo3D.debug_puts('[NAUQ CAD TO 3D] === BOOT START ===')
   begin
     NAUQ::CadTo3D.reload!
-    puts '[NAUQ CAD TO 3D] === reload! OK ==='
+    NAUQ::CadTo3D.debug_puts('[NAUQ CAD TO 3D] === reload! OK ===')
   rescue StandardError, ScriptError => e
-    puts "[NAUQ CAD TO 3D] === reload! FAILED: #{e.class}: #{e.message} ==="
-    puts e.backtrace.first(3).join("\n") if e.backtrace
+    NAUQ::CadTo3D.debug_puts("[NAUQ CAD TO 3D] === reload! FAILED: #{e.class}: #{e.message} ===")
+    NAUQ::CadTo3D.debug_puts(e.backtrace.first(3).join("\n")) if e.backtrace
   end
 
   begin
     NAUQ::CadTo3D.init_ui
-    puts '[NAUQ CAD TO 3D] === init_ui OK ==='
+    NAUQ::CadTo3D.debug_puts('[NAUQ CAD TO 3D] === init_ui OK ===')
   rescue StandardError, ScriptError => e
-    puts "[NAUQ CAD TO 3D] === init_ui FAILED: #{e.class}: #{e.message} ==="
-    puts e.backtrace.first(3).join("\n") if e.backtrace
+    NAUQ::CadTo3D.debug_puts("[NAUQ CAD TO 3D] === init_ui FAILED: #{e.class}: #{e.message} ===")
+    NAUQ::CadTo3D.debug_puts(e.backtrace.first(3).join("\n")) if e.backtrace
   end
 
   file_loaded(__FILE__) unless file_loaded?(__FILE__)
-  puts '[NAUQ CAD TO 3D] === BOOT COMPLETE ==='
+  NAUQ::CadTo3D.debug_puts('[NAUQ CAD TO 3D] === BOOT COMPLETE ===')
 end

@@ -357,8 +357,7 @@ module NAUQ
         def update_status(msg, status_type = 'info')
           return unless @dialog && @dialog.visible?
 
-          msg_escaped = msg.to_s.gsub('\\', '\\\\').gsub("'", "\\'").gsub("\n", ' ')
-          @dialog.execute_script("showStatus('#{msg_escaped}', '#{status_type}');")
+          @dialog.execute_script("showStatus(#{msg.to_s.to_json}, #{status_type.to_json});")
         end
 
         # Core logic: replace a given door/window target (Public for ReplacePickerTool)

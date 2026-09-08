@@ -209,8 +209,10 @@ module NAUQ
             )
           rescue StandardError => e
             model.abort_operation
-            puts "[NAUQ ERROR] Exception in rebuild_walls_with_openings: #{e.class}: #{e.message}"
-            puts e.backtrace.first(10).join("\n")
+            if defined?(CadTo3D) && CadTo3D.respond_to?(:debug_puts)
+              CadTo3D.debug_puts("[NAUQ ERROR] Exception in rebuild_walls_with_openings: #{e.class}: #{e.message}")
+              CadTo3D.debug_puts(e.backtrace.first(10).join("\n")) if e.backtrace
+            end
             Logger.error("Error creating wall geometry: #{e.message}")
             raise e
           ensure

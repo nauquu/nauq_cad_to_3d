@@ -64,6 +64,17 @@ module NAUQ
 
         private
 
+        # Escape a plain-text string before interpolating it into HTML
+        # (matches CGI.escapeHTML behavior without depending on the cgi stdlib)
+        def escape_html(str)
+          str.to_s
+             .gsub('&', '&amp;')
+             .gsub('<', '&lt;')
+             .gsub('>', '&gt;')
+             .gsub('"', '&quot;')
+             .gsub("'", '&#39;')
+        end
+
         def attach_callbacks(dialog, log_entries)
           dialog.add_action_callback('zoom_to_id') do |_context, entry_id|
             entry = log_entries.find { |e| e[:id].to_i == entry_id.to_i }
@@ -88,7 +99,7 @@ module NAUQ
                   <span class="timestamp">#{entry[:timestamp].strftime('%H:%M:%S')}</span>
                 </div>
                 <div class="card-body">
-                  #{entry[:message]}
+                  #{escape_html(entry[:message])}
                 </div>
                 #{has_pos ? "<div class='card-actions'><button onclick='zoomTo(#{entry[:id]})'>[Xem trên bản vẽ]</button></div>" : ''}
               </div>

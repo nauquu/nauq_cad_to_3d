@@ -53,7 +53,7 @@ module NAUQ
           log_entries << entry
 
           prefix = "[NAUQ CAD23D][#{level.to_s.upcase}]"
-          puts "#{prefix} #{message}"
+          NAUQ::CadTo3D.debug_puts("#{prefix} #{message}") if defined?(CadTo3D) && CadTo3D.respond_to?(:debug_puts)
         end
       end
     end

@@ -36,7 +36,9 @@ require 'extensions.rb'
 module NAUQ
   module CadTo3D
     unless file_loaded?(__FILE__)
-      ex = SketchupExtension.new('NAUQ CAD to 3D', 'nauq_cad_to_3d/nauq_cad_to_3d.rb')
+      # NOTE: Extension Warehouse encrypts .rb files into .rbe, so the
+      # registration path MUST omit the .rb file extension.
+      ex = SketchupExtension.new('NAUQ CAD to 3D', 'nauq_cad_to_3d/nauq_cad_to_3d')
       ex.description = 'Tu dong chuyen doi ban ve kien truc 2D CAD DWG thanh mo hinh SketchUp 3D.'
       ex.version     = '$codeVersion'
       ex.copyright   = 'NAUQ Architecture'
