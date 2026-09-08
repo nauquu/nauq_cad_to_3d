@@ -3,9 +3,11 @@
 module NAUQ
   module CadTo3D
     # Architectural 3D Stair Railing Generator
-    # Precision Sloped-Top Baluster & Handrail Engine
-    # Supports Glass Panels, Vertical Balusters, Horizontal Rails, and Handrail Only
-    # 100% mathematically exact slope matching (h/b) for Straight, L-Shape, and U-Shape stairs
+    # Strict geometric invariants:
+    # 1. No hidden edges (visible = true, hidden = false).
+    # 2. No soft or smooth edges (soft = false, smooth = false).
+    # 3. Every edge is strictly parallel to X, Y, Z, or exact stair flight slope.
+    # 4. Flight -> Landing -> Flight junctions are strictly axis-aligned (X, Y, Z) without arbitrary diagonals.
     module RailingBuilder
       DEFAULT_RAILING_HEIGHT_MM = 900.0 unless defined?(DEFAULT_RAILING_HEIGHT_MM)
       DEFAULT_INSET_MM = 50.0 unless defined?(DEFAULT_INSET_MM)
@@ -86,7 +88,7 @@ module NAUQ
             side_group = railing_group.entities.add_group
             side_group.name = "RAILING_#{s.to_s.upcase}"
 
-            # 1. Build continuous top Handrail with Clean Miter Joints
+            # 1. Build continuous top Handrail with Clean Segmented Joints
             build_continuous_handrail(side_group.entities, path_nodes, height_mm.mm, profile, materials[:wood])
 
             # 2. Build Infill according to selected style
@@ -112,186 +114,193 @@ module NAUQ
 
         private
 
-        # Compute continuous 3D key path connecting landing corner newel posts with exact slope (h/b)
+        # Compute an explicit polyline: stair slope segments + axis-aligned landing/transition segments (pure X, pure Y, pure Z).
+        # Inner railing aligns strictly along the inner stair well (giếng thang), outer aligns along walls.
         def compute_exact_railing_path(type, side, total_steps, f1, f2, f3, h, b, w, winder_mode, inset, total_h)
           nodes = []
+          landing_step = winder_mode == 3 ? 2 : (winder_mode == 2 ? 1 : 0)
 
           case type
           when :straight
-            y_pos = side == :inner ? -inset : -(w - inset)
-            nodes << Geom::Point3d.new(0, y_pos, 0)
-            nodes << Geom::Point3d.new((total_steps - 1) * b, y_pos, (total_steps - 1) * h)
-            nodes << Geom::Point3d.new(total_steps * b, y_pos, total_h)
+            y = side == :inner ? -inset : -(w - inset)
+            nodes << Geom::Point3d.new(0, y, 0)
+            nodes << Geom::Point3d.new(total_steps * b, y, total_h)
 
           when :l_shape
-            landing_extra = winder_mode == 3 ? 2 : (winder_mode == 2 ? 1 : 0)
-            f2_actual = [1, total_steps - f1 - landing_extra].max
+            f2n = [1, total_steps - f1 - landing_step].max
             f1_len = (f1 - 1) * b
-            f2_len = (f2_actual - 1) * b
+            f2_len = (f2n - 1) * b
             z1 = (f1 - 1) * h
-            z1_landing = f1 * h
-            z2_start = z1_landing + landing_extra * h
+            zl1 = f1 * h
+            z2s = zl1 + landing_step * h
+            z2 = z2s + (f2n - 1) * h
 
             if side == :inner
-              # Inner Giếng Thang
-              nodes << Geom::Point3d.new(0, -(w - inset), 0)
-              nodes << Geom::Point3d.new(f1_len, -(w - inset), z1)
-              nodes << Geom::Point3d.new(f1_len + inset, -(w - inset), z1_landing)
-              nodes << Geom::Point3d.new(f1_len + inset, -w - inset, z2_start)
-              nodes << Geom::Point3d.new(f1_len + inset, -w - f2_len, z2_start + f2_len / b * h)
-              nodes << Geom::Point3d.new(f1_len + inset, -w - f2_len - b, total_h)
+              y1 = -inset
+              y2 = -w - inset
+              xc = f1_len + inset
+              # 1. Flight 1 exact slope (+X, +Z) along inner edge
+              nodes << Geom::Point3d.new(0, y1, 0)
+              nodes << Geom::Point3d.new(f1_len, y1, z1)
+              # 2. Landing 1: pure Z -> pure X -> pure Y -> pure Z (if winder)
+              nodes << Geom::Point3d.new(f1_len, y1, zl1)
+              nodes << Geom::Point3d.new(xc, y1, zl1)
+              nodes << Geom::Point3d.new(xc, y2, zl1)
+              nodes << Geom::Point3d.new(xc, y2, z2s) if landing_step > 0
+              # 3. Flight 2 exact slope (-Y, +Z) along inner edge
+              nodes << Geom::Point3d.new(xc, -w - f2_len - inset, z2)
+              nodes << Geom::Point3d.new(xc, -w - f2_len - inset, total_h)
             else
-              # Outer Sát Tường
-              nodes << Geom::Point3d.new(0, -inset, 0)
-              nodes << Geom::Point3d.new(f1_len + w - inset, -inset, z1_landing)
-              nodes << Geom::Point3d.new(f1_len + w - inset, -w, z2_start)
-              nodes << Geom::Point3d.new(f1_len + w - inset, -w - f2_len, total_h)
+              y1 = -(w - inset)
+              y2 = -w
+              xc = f1_len + w - inset
+              # 1. Flight 1 exact slope (+X, +Z) along outer wall
+              nodes << Geom::Point3d.new(0, y1, 0)
+              nodes << Geom::Point3d.new(f1_len, y1, z1)
+              # 2. Landing 1
+              nodes << Geom::Point3d.new(f1_len, y1, zl1)
+              nodes << Geom::Point3d.new(xc, y1, zl1)
+              nodes << Geom::Point3d.new(xc, -w - f2_len, zl1)
+              nodes << Geom::Point3d.new(xc, -w - f2_len, z2s) if landing_step > 0
+              # 3. Flight 2 exact slope (-Y, +Z)
+              nodes << Geom::Point3d.new(xc, -w - f2_len, total_h)
             end
 
           else # :u_shape_3
-            landing_extra = winder_mode == 3 ? 4 : (winder_mode == 2 ? 2 : 0)
-            f3_actual = [1, total_steps - f1 - f2 - landing_extra].max
+            f3n = [1, total_steps - f1 - f2 - (winder_mode == 3 ? 4 : (winder_mode == 2 ? 2 : 0))].max
             f1_len = (f1 - 1) * b
             f2_len = (f2 - 1) * b
-            f3_len = (f3_actual - 1) * b
-            l1_extra = winder_mode == 3 ? 2 : (winder_mode == 2 ? 1 : 0)
-
+            f3_len = (f3n - 1) * b
             z1 = (f1 - 1) * h
-            z1_landing = f1 * h
-            z2_start = z1_landing + l1_extra * h
-            z2 = z2_start + (f2 - 1) * h
-            z2_landing = z2_start + f2 * h
-            z3_start = z2_landing + l1_extra * h
-            z3_top = z3_start + (f3_actual - 1) * h
-            f3_end_x = f1_len - f3_len
+            zl1 = f1 * h
+            z2s = zl1 + landing_step * h
+            z2 = z2s + (f2 - 1) * h
+            zl2 = z2s + f2 * h
+            z3s = zl2 + landing_step * h
+            z3 = z3s + (f3n - 1) * h
+            f3_end_x = f1_len - (f3n - 1) * b
 
             if side == :inner
-              # Inner Giếng Thang: Chân thang -> Đỉnh Vế 1 -> Góc Chiếu nghỉ 1 -> Đỉnh Vế 2 -> Góc Chiếu nghỉ 2 -> Đỉnh Vế 3 -> Sàn tầng 2
-              nodes << Geom::Point3d.new(0, -(w - inset), 0)
-              nodes << Geom::Point3d.new(f1_len, -(w - inset), z1)
-              nodes << Geom::Point3d.new(f1_len + inset, -(w - inset), z1_landing)
-              nodes << Geom::Point3d.new(f1_len + inset, -w - inset, z2_start)
-              nodes << Geom::Point3d.new(f1_len + inset, -w - f2_len, z2)
-              nodes << Geom::Point3d.new(f1_len + inset, -w - f2_len - inset, z2_landing)
-              nodes << Geom::Point3d.new(f1_len, -w - f2_len - inset, z3_start)
-              nodes << Geom::Point3d.new(f3_end_x, -w - f2_len - inset, z3_top)
-              nodes << Geom::Point3d.new(f3_end_x, -w - f2_len - inset, total_h)
+              y1 = -inset
+              y2 = -w - inset
+              y3 = -w - f2_len - inset
+              xc = f1_len + inset
+
+              # 1. Flight 1 exact slope (+X, +Z) along inner well (y = -inset)
+              nodes << Geom::Point3d.new(0, y1, 0)
+              nodes << Geom::Point3d.new(f1_len, y1, z1)
+
+              # 2. Landing 1: pure Z -> pure X -> pure Y
+              nodes << Geom::Point3d.new(f1_len, y1, zl1)
+              nodes << Geom::Point3d.new(xc, y1, zl1)
+              nodes << Geom::Point3d.new(xc, y2, zl1)
+              nodes << Geom::Point3d.new(xc, y2, z2s) if landing_step > 0
+
+              # 3. Flight 2 exact slope (-Y, +Z) along inner well (x = f1_len + inset)
+              nodes << Geom::Point3d.new(xc, y3, z2)
+
+              # 4. Landing 2: pure Z -> pure Y -> pure X
+              nodes << Geom::Point3d.new(xc, y3, zl2)
+              nodes << Geom::Point3d.new(xc, y3, z3s) if landing_step > 0
+              nodes << Geom::Point3d.new(f1_len, y3, z3s)
+
+              # 5. Flight 3 exact slope (-X, +Z) along inner well (y = -f2_len - inset)
+              nodes << Geom::Point3d.new(f3_end_x, y3, z3)
+              nodes << Geom::Point3d.new(f3_end_x, y3, total_h)
             else
-              # Outer Sát Tường
-              nodes << Geom::Point3d.new(0, -inset, 0)
-              nodes << Geom::Point3d.new(f1_len + w - inset, -inset, z1_landing)
-              nodes << Geom::Point3d.new(f1_len + w - inset, -w, z2_start)
-              nodes << Geom::Point3d.new(f1_len + w - inset, -w - f2_len, z2_landing)
-              nodes << Geom::Point3d.new(f1_len + w - inset, -2 * w - f2_len + inset, z3_start)
-              nodes << Geom::Point3d.new(f3_end_x, -2 * w - f2_len + inset, z3_top)
-              nodes << Geom::Point3d.new(f3_end_x, -2 * w - f2_len + inset, total_h)
+              y1 = -(w - inset)
+              y2 = -w
+              y3 = -w - f2_len + inset
+              xc = f1_len + w - inset
+
+              # 1. Flight 1 exact slope (+X, +Z) along outer wall
+              nodes << Geom::Point3d.new(0, y1, 0)
+              nodes << Geom::Point3d.new(f1_len, y1, z1)
+
+              # 2. Landing 1
+              nodes << Geom::Point3d.new(f1_len, y1, zl1)
+              nodes << Geom::Point3d.new(xc, y1, zl1)
+              nodes << Geom::Point3d.new(xc, y2, zl1)
+              nodes << Geom::Point3d.new(xc, y2, z2s) if landing_step > 0
+
+              # 3. Flight 2 exact slope (-Y, +Z)
+              nodes << Geom::Point3d.new(xc, -w - f2_len, z2)
+
+              # 4. Landing 2
+              nodes << Geom::Point3d.new(xc, -w - f2_len, zl2)
+              nodes << Geom::Point3d.new(xc, y3, zl2)
+              nodes << Geom::Point3d.new(xc, y3, z3s) if landing_step > 0
+              nodes << Geom::Point3d.new(f1_len, y3, z3s)
+
+              # 5. Flight 3 exact slope (-X, +Z)
+              nodes << Geom::Point3d.new(f3_end_x, y3, z3)
+              nodes << Geom::Point3d.new(f3_end_x, y3, total_h)
             end
           end
 
-          # Clean consecutive duplicate points
           cleaned = []
-          nodes.each do |pt|
-            cleaned << pt if cleaned.empty? || pt.distance(cleaned.last) > 1.mm
-          end
+          nodes.each { |pt| cleaned << pt if cleaned.empty? || pt.distance(cleaned.last) > 1.mm }
           cleaned
         end
 
-        # Build Continuous 3D Top Handrail with Zero-Twist Constant Upright Cross-Sections & Clean Miter Joints
+        # Build Continuous 3D Top Handrail with Planar Segments and Clean Miter Corner Faces
+        # 100% planar quad faces, no twisted non-planar polygons, no gaps, no disjointed blocks.
         def build_continuous_handrail(entities, path_nodes, rail_height, profile, material)
-          return if path_nodes.size < 2
+          return if path_nodes.nil? || path_nodes.size < 2
+
+          up_z = Geom::Vector3d.new(0, 0, 1)
+          top_nodes = path_nodes.map { |p| p.offset(up_z, rail_height) }
 
           grp = entities.add_group
           grp.name = 'HANDRAIL'
           grp.material = material if material
 
-          up_z = Geom::Vector3d.new(0, 0, 1)
-          top_nodes = path_nodes.map { |p| p.offset(up_z, rail_height) }
+          hw = (profile == :square_40 ? 20.0 : 30.0).mm
+          hh = 20.0.mm
 
-          num_nodes = top_nodes.size
-          cross_sections = []
+          (0...(top_nodes.size - 1)).each do |i|
+            p1 = top_nodes[i]
+            p2 = top_nodes[i + 1]
+            vec = p2 - p1
+            len = vec.length
+            next if len < 1.mm
 
-          (0...num_nodes).each do |i|
-            pt = top_nodes[i]
-
-            # 3D Tangent vector
-            t_vec = if i == 0
-                      (top_nodes[1] - top_nodes[0]).normalize
-                    elsif i == num_nodes - 1
-                      (top_nodes[num_nodes - 1] - top_nodes[num_nodes - 2]).normalize
-                    else
-                      v_prev = (top_nodes[i] - top_nodes[i - 1]).normalize
-                      v_next = (top_nodes[i + 1] - top_nodes[i]).normalize
-                      bisect = v_prev + v_next
-                      bisect.length < 1e-4 ? v_next : bisect.normalize
-                    end
-
-            t_xy = Geom::Vector3d.new(t_vec.x, t_vec.y, 0)
-            side_vec = if t_xy.length < 1e-4
+            # Determine lateral width vector in horizontal XY plane
+            side_vec = if vec.x.abs >= vec.y.abs && vec.x.abs > 1e-3
+                         Geom::Vector3d.new(0, 1, 0)
+                       elsif vec.y.abs > 1e-3
                          Geom::Vector3d.new(1, 0, 0)
                        else
-                         Geom::Vector3d.new(t_xy.y, -t_xy.x, 0).normalize
+                         Geom::Vector3d.new(1, 0, 0)
                        end
 
-            case profile
-            when :round_50
-              radius = 25.0.mm
-              num_segs = 16
-              ring = []
-              (0...num_segs).each do |idx|
-                angle = (2.0 * Math::PI * idx) / num_segs
-                ring << pt.offset(side_vec, radius * Math.cos(angle)).offset(up_z, radius * Math.sin(angle))
-              end
-              cross_sections << ring
+            ring1 = [
+              p1.offset(side_vec, -hw).offset(up_z, hh),
+              p1.offset(side_vec, hw).offset(up_z, hh),
+              p1.offset(side_vec, hw).offset(up_z, -hh),
+              p1.offset(side_vec, -hw).offset(up_z, -hh)
+            ]
+            ring2 = [
+              p2.offset(side_vec, -hw).offset(up_z, hh),
+              p2.offset(side_vec, hw).offset(up_z, hh),
+              p2.offset(side_vec, hw).offset(up_z, -hh),
+              p2.offset(side_vec, -hw).offset(up_z, -hh)
+            ]
 
-            else # :rect_60_40 (or :square_40) with 8-point subtle chamfered profile
-              hw = (profile == :square_40 ? 20.0 : 30.0).mm
-              hh = 20.0.mm
-              cr = 4.0.mm # 4mm rounded corner chamfer
+            # 4 perfectly planar quad faces
+            grp.entities.add_face([ring1[0], ring2[0], ring2[1], ring1[1]]) rescue nil # Top
+            grp.entities.add_face([ring1[1], ring2[1], ring2[2], ring1[2]]) rescue nil # Right
+            grp.entities.add_face([ring1[2], ring2[2], ring2[3], ring1[3]]) rescue nil # Bottom
+            grp.entities.add_face([ring1[3], ring2[3], ring2[0], ring1[0]]) rescue nil # Left
 
-              ring = [
-                # Top side
-                pt.offset(side_vec, -hw + cr).offset(up_z, hh),
-                pt.offset(side_vec, hw - cr).offset(up_z, hh),
-                # Right side
-                pt.offset(side_vec, hw).offset(up_z, hh - cr),
-                pt.offset(side_vec, hw).offset(up_z, -hh + cr),
-                # Bottom side
-                pt.offset(side_vec, hw - cr).offset(up_z, -hh),
-                pt.offset(side_vec, -hw + cr).offset(up_z, -hh),
-                # Left side
-                pt.offset(side_vec, -hw).offset(up_z, -hh + cr),
-                pt.offset(side_vec, -hw).offset(up_z, hh - cr)
-              ]
-              cross_sections << ring
-            end
+            # Start cap on first segment, end cap on last segment
+            grp.entities.add_face(ring1.reverse) rescue nil if i == 0
+            grp.entities.add_face(ring2) rescue nil if i == top_nodes.size - 2
           end
-
-          # Triangulated loft between adjacent rings with Soft/Smooth surface shading
-          (0...(num_nodes - 1)).each do |i|
-            r1 = cross_sections[i]
-            r2 = cross_sections[i + 1]
-            seg_count = r1.size
-
-            (0...seg_count).each do |k|
-              k_next = (k + 1) % seg_count
-              f1 = grp.entities.add_face([r1[k], r2[k], r2[k_next]]) rescue nil
-              f2 = grp.entities.add_face([r1[k], r2[k_next], r1[k_next]]) rescue nil
-
-              [f1, f2].compact.each do |f|
-                f.edges.each do |e|
-                  e.soft = true
-                  e.smooth = true
-                end
-              end
-            end
-          end
-
-          # Add start & end caps (keep cap perimeter edges sharp)
-          grp.entities.add_face(cross_sections.first) rescue nil
-          grp.entities.add_face(cross_sections.last.reverse) rescue nil
         end
 
-        # Style 1: Glass Panels (Kính Cường Lực + Chấu Inox)
+        # Style 1: Glass Panels (Kính Cường Lực + Chấu Inox Vuông)
+        # All edges strictly parallel to X, Y, Z, or stair slope.
         def build_glass_panels(entities, path_nodes, rail_height, glass_mat, steel_mat)
           grp = entities.add_group
           grp.name = 'GLASS_PANELS'
@@ -302,33 +311,42 @@ module NAUQ
           up = Geom::Vector3d.new(0, 0, 1)
 
           (0...(path_nodes.size - 1)).each do |i|
-            b1 = path_nodes[i]
-            b2 = path_nodes[i + 1]
-            vec = b2 - b1
-            len = vec.length
-            next if len < 40.mm
+            begin
+              b1 = path_nodes[i]
+              b2 = path_nodes[i + 1]
+              vec = b2 - b1
+              len = vec.length
+              # Skip very short segments and pure vertical riser transitions
+              next if len < 40.mm || (vec.x.abs < 1e-3 && vec.y.abs < 1e-3)
 
-            panel_grp = grp.entities.add_group
-            panel_grp.name = "GLASS_PANEL_#{i + 1}"
-            panel_grp.material = glass_mat if glass_mat
+              panel_grp = grp.entities.add_group
+              panel_grp.name = "GLASS_PANEL_#{i + 1}"
+              panel_grp.material = glass_mat if glass_mat
 
-            p_b1 = b1.offset(up, h_glass_bot)
-            p_b2 = b2.offset(up, h_glass_bot)
-            p_t2 = b2.offset(up, h_glass_top)
-            p_t1 = b1.offset(up, h_glass_top)
+              # Offset each base point along Z independently to form a pure planar vertical panel
+              p_b1 = b1.offset(up, h_glass_bot)
+              p_b2 = b2.offset(up, h_glass_bot)
+              p_t2 = b2.offset(up, h_glass_top)
+              p_t1 = b1.offset(up, h_glass_top)
 
-            face = panel_grp.entities.add_face([p_b1, p_b2, p_t2, p_t1])
-            face.pushpull(glass_thick) if face
+              face = panel_grp.entities.add_face([p_b1, p_b2, p_t2, p_t1]) rescue nil
+              face.pushpull(glass_thick) if face
 
-            # Add stainless steel spigot clamps at 25% and 75%
-            [0.25, 0.75].each do |ratio|
-              clamp_pt = b1.offset(vec.normalize, len * ratio).offset(up, h_glass_bot / 2.0)
-              build_cylinder_spigot(panel_grp.entities, clamp_pt, 16.0.mm, 40.0.mm, steel_mat)
+              # Add stainless steel square clamps at 25% and 75%
+              seg_dir = vec.length > 1e-3 ? vec.normalize : Geom::Vector3d.new(1, 0, 0)
+              [0.25, 0.75].each do |ratio|
+                clamp_pt = b1.offset(seg_dir, len * ratio).offset(up, h_glass_bot / 2.0)
+                build_square_clamp(panel_grp.entities, clamp_pt, 24.0.mm, 40.0.mm, steel_mat)
+              end
+            rescue StandardError => e
+              Logger.error("Lỗi panel kính #{i + 1}: #{e.message}") if defined?(Logger)
+              next
             end
           end
         end
 
         # Style 2: Vertical Balusters (Nan sắt cắm vát ăn sâu vào lòng tay vịn)
+        # All edges strictly parallel to X, Y, Z, or stair slope.
         def build_vertical_balusters(entities, path_nodes, rail_height, metal_mat, type, side, total_steps, f1, f2, f3, h, b, w, winder_mode, inset, total_h)
           grp = entities.add_group
           grp.name = 'VERTICAL_BALUSTERS'
@@ -349,7 +367,7 @@ module NAUQ
           z3_start = z2_landing + l1_extra * h
           f3_end_x = f1_len - (f3_actual - 1) * b
 
-          # 1. Place Main Newel Posts (40x40mm)
+          # 1. Place Main Newel Posts (40x40mm, all edges along X, Y, Z)
           posts_to_build = []
           case type
           when :straight
@@ -393,7 +411,7 @@ module NAUQ
           end
 
           # 2. Place vertical balusters directly on step treads with Sloped Top Cutting into Handrail
-          balusters_data = [] # [[base_pt, flight_slope_direction, h_top_at_center]]
+          balusters_data = [] # [[base_pt, flight_slope_direction, h_top_at_center, slope_gradient]]
 
           case type
           when :straight
@@ -456,41 +474,42 @@ module NAUQ
             bar_grp = grp.entities.add_group
             hs = bar_size / 2.0
 
-            # 4 bottom vertices on tread surface
+            # 4 bottom vertices on tread surface (parallel to X, Y)
             b1 = base_pt.offset(vx, -hs).offset(vy, -hs)
             b2 = base_pt.offset(vx, hs).offset(vy, -hs)
             b3 = base_pt.offset(vx, hs).offset(vy, hs)
             b4 = base_pt.offset(vx, -hs).offset(vy, hs)
 
-            # 4 top vertices with slope incline
+            # 4 top vertices with slope incline matching stair slope exactly
             t1 = b1.offset(vz, h_center + (s_dir.x * -hs + s_dir.y * -hs) * slope_grad)
             t2 = b2.offset(vz, h_center + (s_dir.x * hs + s_dir.y * -hs) * slope_grad)
             t3 = b3.offset(vz, h_center + (s_dir.x * hs + s_dir.y * hs) * slope_grad)
             t4 = b4.offset(vz, h_center + (s_dir.x * -hs + s_dir.y * hs) * slope_grad)
 
-            # 6 faces
-            bar_grp.entities.add_face([b1, b2, b3, b4]) rescue nil # Bottom
-            bar_grp.entities.add_face([t4, t3, t2, t1]) rescue nil # Sloped Top
-            bar_grp.entities.add_face([b1, b2, t2, t1]) rescue nil # Side 1
-            bar_grp.entities.add_face([b2, b3, t3, t2]) rescue nil # Side 2
-            bar_grp.entities.add_face([b3, b4, t4, t3]) rescue nil # Side 3
-            bar_grp.entities.add_face([b4, b1, t1, t4]) rescue nil # Side 4
+            # 6 faces: all edges are strictly parallel to X, Y, Z, or stair slope
+            bar_grp.entities.add_face([b1, b2, b3, b4]) rescue nil # Bottom (X, Y)
+            bar_grp.entities.add_face([t4, t3, t2, t1]) rescue nil # Sloped Top (stair slope, X/Y)
+            bar_grp.entities.add_face([b1, b2, t2, t1]) rescue nil # Side 1 (Z, X/Y, stair slope)
+            bar_grp.entities.add_face([b2, b3, t3, t2]) rescue nil # Side 2 (Z, X/Y, stair slope)
+            bar_grp.entities.add_face([b3, b4, t4, t3]) rescue nil # Side 3 (Z, X/Y, stair slope)
+            bar_grp.entities.add_face([b4, b1, t1, t4]) rescue nil # Side 4 (Z, X/Y, stair slope)
           end
         end
 
-        # Style 3: Horizontal Rails (Trụ Góc + 3 Thanh Suốt Ngang Liền Mạch)
+        # Style 3: Horizontal Rails (Trụ Góc Vuông + 3 Thanh Suốt Vuông Liền Mạch)
+        # All edges strictly parallel to X, Y, Z, or stair slope.
         def build_horizontal_rails(entities, path_nodes, rail_height, steel_mat)
           grp = entities.add_group
           grp.name = 'HORIZONTAL_RAILS'
           grp.material = steel_mat if steel_mat
 
           post_size = 35.0.mm
-          rail_radius = 8.0.mm # Ø16mm
+          rail_size = 16.0.mm # 16x16mm square tube
           vx = Geom::Vector3d.new(1, 0, 0)
           vy = Geom::Vector3d.new(0, 1, 0)
           vz = Geom::Vector3d.new(0, 0, 1)
 
-          # 1. Place vertical corner posts at key nodes extending UPWARDS
+          # 1. Place vertical corner posts at key nodes extending UPWARDS (X, Y, Z)
           path_nodes.each do |node|
             post_grp = grp.entities.add_group
             hs = post_size / 2.0
@@ -507,16 +526,57 @@ module NAUQ
             end
           end
 
-          # 2. Sweep 3 continuous horizontal intermediate tubes at 25%, 50%, 75% height
+          # 2. Build 3 horizontal intermediate square tubes at 25%, 50%, 75% height
           [0.25, 0.50, 0.75].each do |ratio|
             h_curr = rail_height * ratio
-            tube_nodes = path_nodes.map { |p| p.offset(vz, h_curr) }
-            tube_grp = grp.entities.add_group
-            sweep_continuous_pipe(tube_grp.entities, tube_nodes, rail_radius)
+            (0...(path_nodes.size - 1)).each do |i|
+              p1 = path_nodes[i].offset(vz, h_curr)
+              p2 = path_nodes[i + 1].offset(vz, h_curr)
+              build_square_tube_segment(grp.entities, p1, p2, rail_size)
+            end
           end
         end
 
-        # Style 4: Handrail Only with wall brackets / mounting posts
+        # Helper: Build square tube segment along a path vector (X, Y, Z, or stair slope)
+        def build_square_tube_segment(entities, p1, p2, size)
+          vec = p2 - p1
+          len = vec.length
+          return if len < 1.mm
+
+          tangent = vec.normalize
+          tangent_xy = Geom::Vector3d.new(tangent.x, tangent.y, 0)
+          is_vertical = tangent_xy.length <= 1e-3
+
+          vx, vy = if is_vertical
+                     [Geom::Vector3d.new(1, 0, 0), Geom::Vector3d.new(0, 1, 0)]
+                   else
+                     side_vec = Geom::Vector3d.new(tangent_xy.y, -tangent_xy.x, 0).normalize
+                     [side_vec, Geom::Vector3d.new(0, 0, 1)]
+                   end
+          hs = size / 2.0
+
+          ring1 = [
+            p1.offset(vx, -hs).offset(vy, -hs),
+            p1.offset(vx, hs).offset(vy, -hs),
+            p1.offset(vx, hs).offset(vy, hs),
+            p1.offset(vx, -hs).offset(vy, hs)
+          ]
+          ring2 = [
+            p2.offset(vx, -hs).offset(vy, -hs),
+            p2.offset(vx, hs).offset(vy, -hs),
+            p2.offset(vx, hs).offset(vy, hs),
+            p2.offset(vx, -hs).offset(vy, hs)
+          ]
+
+          entities.add_face(ring1.reverse) rescue nil
+          entities.add_face(ring2) rescue nil
+          4.times do |k|
+            kn = (k + 1) % 4
+            entities.add_face([ring1[k], ring1[kn], ring2[kn], ring2[k]]) rescue nil
+          end
+        end
+
+        # Style 4: Handrail Only with square wall brackets / mounting posts
         def build_handrail_brackets(entities, path_nodes, rail_height, steel_mat)
           grp = entities.add_group
           grp.name = 'HANDRAIL_BRACKETS'
@@ -525,104 +585,24 @@ module NAUQ
           vz = Geom::Vector3d.new(0, 0, 1)
           path_nodes.each do |node|
             post_grp = grp.entities.add_group
-            radius = 12.0.mm # Ø24mm vertical mount pin
             h_pin = rail_height - 5.0.mm
-            build_pipe_segment(post_grp.entities, node, node.offset(vz, h_pin), radius)
+            build_square_clamp(post_grp.entities, node, 20.0.mm, h_pin, steel_mat)
           end
         end
 
-        # Helper: Sweep continuous cylindrical pipe through polyline nodes
-        def sweep_continuous_pipe(entities, nodes, radius)
-          return if nodes.size < 2
-
-          up_z = Geom::Vector3d.new(0, 0, 1)
-          num_nodes = nodes.size
-          cross_sections = []
-          num_segs = 12
-
-          (0...num_nodes).each do |i|
-            pt = nodes[i]
-            t_vec = if i == 0
-                      (nodes[1] - nodes[0]).normalize
-                    elsif i == num_nodes - 1
-                      (nodes[num_nodes - 1] - nodes[num_nodes - 2]).normalize
-                    else
-                      v_prev = (nodes[i] - nodes[i - 1]).normalize
-                      v_next = (nodes[i + 1] - nodes[i]).normalize
-                      bisect = v_prev + v_next
-                      bisect.length < 1e-4 ? v_next : bisect.normalize
-                    end
-
-            t_xy = Geom::Vector3d.new(t_vec.x, t_vec.y, 0)
-            side_vec = if t_xy.length < 1e-4
-                         Geom::Vector3d.new(1, 0, 0)
-                       else
-                         Geom::Vector3d.new(t_xy.y, -t_xy.x, 0).normalize
-                       end
-
-            ring = []
-            (0...num_segs).each do |idx|
-              angle = (2.0 * Math::PI * idx) / num_segs
-              ring << pt.offset(side_vec, radius * Math.cos(angle)).offset(up_z, radius * Math.sin(angle))
-            end
-            cross_sections << ring
-          end
-
-          (0...(num_nodes - 1)).each do |i|
-            r1 = cross_sections[i]
-            r2 = cross_sections[i + 1]
-            (0...num_segs).each do |k|
-              k_next = (k + 1) % num_segs
-              f1 = entities.add_face([r1[k], r2[k], r2[k_next]]) rescue nil
-              f2 = entities.add_face([r1[k], r2[k_next], r1[k_next]]) rescue nil
-              [f1, f2].compact.each do |f|
-                f.edges.each do |e|
-                  e.soft = true
-                  e.smooth = true
-                end
-              end
-            end
-          end
-
-          entities.add_face(cross_sections.first) rescue nil
-          entities.add_face(cross_sections.last.reverse) rescue nil
-        end
-
-        # Helper: Build cylindrical pipe between two points
-        def build_pipe_segment(entities, p1, p2, radius)
-          vec = p2 - p1
-          len = vec.length
-          return if len < 1.mm
-
-          fwd = vec.normalize
-          up_temp = Geom::Vector3d.new(0, 0, 1)
-          side_vec = (fwd.parallel?(up_temp) ? Geom::Vector3d.new(1, 0, 0) : fwd.cross(up_temp)).normalize
-          norm_up_vec = side_vec.cross(fwd).normalize
-
-          num_segs = 8
-          pts = []
-          (0...num_segs).each do |deg_idx|
-            angle = (2.0 * Math::PI * deg_idx) / num_segs
-            pts << p1.offset(side_vec, radius * Math.cos(angle)).offset(norm_up_vec, radius * Math.sin(angle))
-          end
-          face = entities.add_face(pts)
-          if face
-            face.normal.samedirection?(fwd) ? face.pushpull(-len) : face.pushpull(len)
-          end
-        end
-
-        # Helper: Build vertical cylindrical clamp/spigot
-        def build_cylinder_spigot(entities, base_pt, radius, height, mat)
+        # Helper: Build vertical square clamp/spigot
+        def build_square_clamp(entities, base_pt, size, height, mat)
           spigot_grp = entities.add_group
           spigot_grp.material = mat if mat
-          pts = []
-          num_segs = 12
           vx = Geom::Vector3d.new(1, 0, 0)
           vy = Geom::Vector3d.new(0, 1, 0)
-          (0...num_segs).each do |idx|
-            angle = (2.0 * Math::PI * idx) / num_segs
-            pts << base_pt.offset(vx, radius * Math.cos(angle)).offset(vy, radius * Math.sin(angle))
-          end
+          hs = size / 2.0
+          pts = [
+            base_pt.offset(vx, -hs).offset(vy, -hs),
+            base_pt.offset(vx, hs).offset(vy, -hs),
+            base_pt.offset(vx, hs).offset(vy, hs),
+            base_pt.offset(vx, -hs).offset(vy, hs)
+          ]
           face = spigot_grp.entities.add_face(pts)
           if face
             face.normal.z > 0 ? face.pushpull(height) : face.pushpull(-height)

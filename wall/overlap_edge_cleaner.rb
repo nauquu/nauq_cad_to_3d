@@ -196,42 +196,132 @@ module NAUQ
             model.commit_operation
             Sketchup.status_text = "[NAUQ] Đã ẩn thành công #{stats[:hidden]} phân đoạn cạnh trùng lặp!"
             Logger.info("Đã ẩn #{stats[:hidden]} cạnh trùng (chia #{stats[:splits]} lần).") if defined?(Logger)
+            stats[:hidden].to_i
           rescue StandardError => e
             model.abort_operation
             UI.messagebox("Lỗi khi ẩn nét trùng: #{e.message}")
+            0
           end
         end
 
-        # Unhide hidden edges strictly within the selected entities (Silent 1-click)
+        # Unhide hidden edges strictly within the selected entities (or entire model if empty)
         def unhide_selected_edges
           model = Sketchup.active_model
-          return unless model
+          return 0 unless model
 
           selection = model.selection
-          if selection.empty?
-            Sketchup.status_text = '[NAUQ] Vui lòng chọn ít nhất một đối tượng (Group/Component/Cạnh) cần hiện nét ẩn.'
-            return
-          end
+          target_entities = selection.empty? ? model.entities : selection
 
           model.start_operation('NAUQ Hiện Nét Ẩn Vùng Chọn', true)
           unhidden_count = 0
+          unsoftened_count = 0
+          unhidden_groups = 0
+          scanned_entities = 0
+          visited_definitions = {}
 
-          unhide_proc = lambda do |entities|
-            entities.each do |ent|
-              if ent.is_a?(Sketchup::Group) || ent.is_a?(Sketchup::ComponentInstance)
-                unhide_proc.call(ent.definition.entities)
-              elsif ent.is_a?(Sketchup::Edge) && !ent.visible?
+          unhide_entity = nil
+          unhide_entity = lambda do |ent|
+            return unless ent&.valid?
+            scanned_entities += 1
+
+            if ent.is_a?(Sketchup::Edge)
+              was_hidden = !ent.visible? || ent.hidden?
+              was_soft = ent.soft? || ent.smooth?
+
+              if was_hidden
                 ent.visible = true
+                ent.hidden = false
                 unhidden_count += 1
               end
+
+              if was_soft
+                ent.soft = false
+                ent.smooth = false
+                unsoftened_count += 1
+              end
+
+            elsif ent.is_a?(Sketchup::Face)
+              ent.edges.each do |edge|
+                next unless edge.valid?
+                scanned_entities += 1
+                was_hidden = !edge.visible? || edge.hidden?
+                was_soft = edge.soft? || edge.smooth?
+
+                if was_hidden
+                  edge.visible = true
+                  edge.hidden = false
+                  unhidden_count += 1
+                end
+
+                if was_soft
+                  edge.soft = false
+                  edge.smooth = false
+                  unsoftened_count += 1
+                end
+              end
+
+            elsif ent.is_a?(Sketchup::Group)
+              if !ent.visible? || ent.hidden?
+                ent.visible = true
+                ent.hidden = false
+                unhidden_groups += 1
+              end
+
+              # Recurse inside group entities
+              if ent.respond_to?(:entities)
+                ent.entities.each { |child| unhide_entity.call(child) }
+              end
+              if ent.respond_to?(:definition)
+                def_id = ent.definition.object_id
+                unless visited_definitions[def_id]
+                  visited_definitions[def_id] = true
+                  ent.definition.entities.each { |child| unhide_entity.call(child) }
+                end
+              end
+
+            elsif ent.is_a?(Sketchup::ComponentInstance)
+              if !ent.visible? || ent.hidden?
+                ent.visible = true
+                ent.hidden = false
+                unhidden_groups += 1
+              end
+
+              def_id = ent.definition.object_id
+              unless visited_definitions[def_id]
+                visited_definitions[def_id] = true
+                ent.definition.entities.each { |child| unhide_entity.call(child) }
+              end
+
+            elsif ent.respond_to?(:each)
+              ent.each { |child| unhide_entity.call(child) }
             end
           end
 
-          unhide_proc.call(selection)
+          target_entities.each { |ent| unhide_entity.call(ent) }
           model.commit_operation
+          model.active_view.invalidate rescue nil
 
-          Sketchup.status_text = "[NAUQ] Đã hiện lại #{unhidden_count} cạnh ẩn trong các đối tượng đã chọn!"
-          Logger.info("Đã hiện lại #{unhidden_count} cạnh ẩn trong vùng chọn.") if defined?(Logger)
+          total_restored = unhidden_count + unsoftened_count + unhidden_groups
+
+          msg = if total_restored > 0
+                  details = []
+                  details << "#{unhidden_count} nét ẩn (Hidden)" if unhidden_count > 0
+                  details << "#{unsoftened_count} nét làm mềm (Soft/Smooth)" if unsoftened_count > 0
+                  details << "#{unhidden_groups} nhóm đối tượng (Group/Component)" if unhidden_groups > 0
+                  "Đã phục hồi hiển thị thành công: #{details.join(', ')} (quét #{scanned_entities} đối tượng)!"
+                else
+                  "Đã quét #{scanned_entities} đối tượng: Toàn bộ nét vẽ và bề mặt đang ở trạng thái hiển thị bình thường (không có nét ẩn hay nét bị làm mềm)."
+                end
+
+          Sketchup.status_text = "[NAUQ] #{msg}"
+          ::UI.messagebox(msg, MB_OK) if defined?(::UI)
+          Logger.info("[NAUQ] #{msg}") if defined?(Logger)
+          total_restored.to_i
+        rescue StandardError => e
+          model.abort_operation rescue nil
+          Logger.error("Lỗi khi hiện nét ẩn: #{e.message}\n#{e.backtrace ? e.backtrace.first(5).join("\n") : ''}") if defined?(Logger)
+          ::UI.messagebox("Lỗi khi hiện nét ẩn: #{e.message}", MB_OK) if defined?(::UI)
+          0
         end
 
         alias unhide_all_edges unhide_selected_edges

@@ -48,6 +48,15 @@ module NAUQ
           ]
         end
 
+        # Calculate 2D centroid of a polygon (Points array)
+        def polygon_centroid_2d(points)
+          return Geom::Point3d.new(0, 0, 0) if points.empty?
+          avg_x = points.map(&:x).sum / points.size.to_f
+          avg_y = points.map(&:y).sum / points.size.to_f
+          avg_z = points.map(&:z).sum / points.size.to_f
+          Geom::Point3d.new(avg_x, avg_y, avg_z)
+        end
+
         # Find 2D centroid of a set of Geom::Point3d points
         def centroid(points)
           return nil if points.empty?
@@ -184,5 +193,22 @@ module NAUQ
         end
       end
     end
+
+    # Backwards compatibility bridge for legacy calls and menu closures
+    module Core
+      module GeometryHelper
+        class << self
+          def mm_to_inch(mm); Geometry.mm_to_inch(mm); end
+          def inch_to_mm(inch); Geometry.inch_to_mm(inch); end
+          def hide_coplanar_overlap_edges(_targets = nil)
+            OverlapEdgeCleaner.hide_overlapping_edges
+          end
+          def unhide_all_edges(_targets = nil)
+            OverlapEdgeCleaner.unhide_selected_edges
+          end
+        end
+      end
+    end
   end
 end
+
