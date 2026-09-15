@@ -11,7 +11,7 @@ module NAUQ
   module CadTo3D
     PLUGIN_ID = 'NAUQ_CAD_TO_3D' unless defined?(PLUGIN_ID)
     PLUGIN_NAME = 'NAUQ CAD to 3D' unless defined?(PLUGIN_NAME)
-    PLUGIN_VERSION = '1.9.11' unless defined?(PLUGIN_VERSION)
+    PLUGIN_VERSION = '1.9.12' unless defined?(PLUGIN_VERSION)
 
     # Set to true to print debug messages to the Ruby Console.
     # Extension Warehouse requires extensions to remain silent unless debug
@@ -358,6 +358,21 @@ module NAUQ
 
       # Main Execution Flow (Section 3 of SPEC)
       def run_pipeline(file_path = nil)
+        model = Sketchup.active_model
+
+        # 1. Nếu người dùng đang quét chọn một bản vẽ CAD trong mô hình, dựng 3D ngay cho bản vẽ đó
+        if model && (!file_path || !File.exist?(file_path))
+          selected_cad = find_existing_cad_group(model, from_selection_only: true)
+          if selected_cad && DWGReader.has_cad_geometry?(selected_cad)
+            selected_cad.visible = true if selected_cad.respond_to?(:visible=)
+            selected_cad.hidden = false if selected_cad.respond_to?(:hidden=)
+            BuildDialog.show(selected_cad) do
+              execute_3d_building(selected_cad)
+            end
+            return
+          end
+        end
+
         unless file_path && File.exist?(file_path)
           paste_from_cad
           return
@@ -375,7 +390,7 @@ module NAUQ
           if definition && definition.valid?
             Progress.finish('Rê chuột chọn vị trí đặt bản vẽ')
             CADPlacementManager.start(definition, file_path) do |placed_cad|
-              BuildDialog.show do
+              BuildDialog.show(placed_cad) do
                 execute_3d_building(placed_cad)
               end
             end
@@ -384,15 +399,15 @@ module NAUQ
           end
         end
 
-        # If user cancelled file picker, check for existing CAD in model
-        cad_group = DWGReader.find_or_create_cad_original_group(Sketchup.active_model)
-        cad_group = DWGReader.adopt_loose_cad_imports(cad_group)
-
-        if cad_group && DWGReader.has_cad_geometry?(cad_group)
+        # Kiểm tra bản vẽ CAD có sẵn trong model
+        target_cad = find_existing_cad_group(model)
+        if target_cad && DWGReader.has_cad_geometry?(target_cad)
           Progress.finish('Đã nhận CAD')
-          Logger.info("Sử dụng bản vẽ CAD hiện có trong model ('#{DWGReader::CAD_ORIGINAL_GROUP_NAME}').")
-          BuildDialog.show do
-            execute_3d_building(cad_group)
+          Logger.info("Sử dụng bản vẽ CAD hiện có trong model ('#{target_cad.name}').")
+          target_cad.visible = true if target_cad.respond_to?(:visible=)
+          target_cad.hidden = false if target_cad.respond_to?(:hidden=)
+          BuildDialog.show(target_cad) do
+            execute_3d_building(target_cad)
           end
         else
           Progress.finish('Hủy thao tác')
@@ -404,8 +419,16 @@ module NAUQ
       def execute_3d_building(cad_group)
         return unless cad_group && cad_group.valid?
 
-        Sketchup.active_model.select_tool(nil) rescue nil
-        Sketchup.active_model.selection.clear rescue nil
+        model = Sketchup.active_model
+        return unless model
+
+        # Đảm bảo bản vẽ 2D luôn hiển thị, không bị ẩn
+        cad_group.visible = true if cad_group.respond_to?(:visible=)
+        cad_group.hidden = false if cad_group.respond_to?(:hidden=)
+
+        model.select_tool(nil) rescue nil
+        model.selection.clear rescue nil
+
         Progress.start('Đang chuẩn bị dựng 3D...')
         settings = Config.settings
         win_h = settings[:window_height] || [settings[:door_height] - settings[:window_offset], 200.0].max
@@ -454,6 +477,12 @@ module NAUQ
           Logger.error('--- Wall reference preparation failed. ---')
         end
 
+        # Luôn đảm bảo bản vẽ 2D gốc còn nguyên vẹn và hiển thị sau khi dựng 3D
+        if cad_group && cad_group.valid?
+          cad_group.visible = true if cad_group.respond_to?(:visible=)
+          cad_group.hidden = false if cad_group.respond_to?(:hidden=)
+        end
+
         # Show Error Report ONLY if actual critical errors occurred
         if Logger.errors.any?
           ReportDialog.show
@@ -462,12 +491,45 @@ module NAUQ
         Progress.finish('Dựng 3D hoàn tất')
       end
 
-      # Find existing NAUQ_CAD_ORIGINAL group in model
-      def find_existing_cad_group
-        model = Sketchup.active_model
+      # Find existing CAD drawing in model (selection, top-level, or unwrap legacy container)
+      def find_existing_cad_group(model = Sketchup.active_model, from_selection_only: false)
         return nil unless model
 
-        DWGReader.find_or_create_cad_original_group(model)
+        # 1. First check user selection
+        selected = model.selection.find do |e|
+          e.valid? && (e.is_a?(Sketchup::Group) || e.is_a?(Sketchup::ComponentInstance)) &&
+            (Attribute.tagged_as?(e, 'cad_original') || Attribute.tagged_as?(e, 'dwg_import') || e.name.to_s.start_with?('CAD_') || DWGReader.has_cad_geometry?(e))
+        end
+        if selected
+          selected.visible = true if selected.respond_to?(:visible=)
+          selected.hidden = false if selected.respond_to?(:hidden=)
+          return selected
+        end
+
+        return nil if from_selection_only
+
+        # 2. Check top-level CAD instances in model.entities
+        candidate = model.entities.grep(Sketchup::ComponentInstance).find do |inst|
+          inst.valid? && (Attribute.tagged_as?(inst, 'cad_original') || Attribute.tagged_as?(inst, 'dwg_import') || inst.name.to_s.start_with?('CAD_') || DWGReader.has_cad_geometry?(inst))
+        end
+        if candidate
+          candidate.visible = true if candidate.respond_to?(:visible=)
+          candidate.hidden = false if candidate.respond_to?(:hidden=)
+          return candidate
+        end
+
+        # 3. Check legacy NAUQ_CAD_ORIGINAL container if any (unwrap it and return child)
+        DWGReader.unwrap_cad_original_group(model)
+        candidate = model.entities.grep(Sketchup::ComponentInstance).find do |inst|
+          inst.valid? && (Attribute.tagged_as?(inst, 'cad_original') || Attribute.tagged_as?(inst, 'dwg_import') || inst.name.to_s.start_with?('CAD_') || DWGReader.has_cad_geometry?(inst))
+        end
+        if candidate
+          candidate.visible = true if candidate.respond_to?(:visible=)
+          candidate.hidden = false if candidate.respond_to?(:hidden=)
+          return candidate
+        end
+
+        nil
       end
 
       # Write embedded SVG icons to temp directory and return paths

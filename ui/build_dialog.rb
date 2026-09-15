@@ -7,7 +7,8 @@ module NAUQ
     # HtmlDialog for post-import 3D dimensions confirmation with preset quick selection
     module BuildDialog
       class << self
-        def show(&on_confirm_block)
+        def show(cad_group = nil, &on_confirm_block)
+          @current_cad_group = cad_group
           @on_confirm_callback = on_confirm_block
 
           if @dialog && @dialog.visible?
@@ -20,8 +21,8 @@ module NAUQ
             preferences_key: 'NAUQ_CAD_TO_3D_Build_Dialog',
             scrollable: true,
             resizable: true,
-            width: 630,
-            height: 520,
+            width: 650,
+            height: 510,
             left: 200,
             top: 150,
             style: UI::HtmlDialog::STYLE_DIALOG
@@ -48,23 +49,51 @@ module NAUQ
               window_offset: settings[:window_offset] || 900.0,
               has_glass_transom: (settings[:glass_height] || 350.0) > 0,
               glass_height: settings[:glass_height] || 350.0,
+              deduct_beam: settings[:deduct_beam] || false,
+              beam_depth: settings[:beam_depth] || 400.0,
               presets: Config.presets,
               active_preset: Config.active_preset
             }
             dialog.execute_script("initBuildDialog(#{data.to_json});")
           end
 
+          dialog.add_action_callback('rotate_cad') do |_action_context, angle_deg|
+            deg = angle_deg.to_f
+            deg = 90.0 if deg == 0.0
+            model = Sketchup.active_model
+            target = @current_cad_group
+            target ||= DWGReader.find_or_create_cad_original_group(model)
+
+            if target && target.valid?
+              bounds = target.bounds
+              center = bounds.center
+              center_pt = Geom::Point3d.new(center.x, center.y, 0)
+              rad = deg * Math::PI / 180.0
+              rot = Geom::Transformation.rotation(center_pt, Geom::Vector3d.new(0, 0, 1), rad)
+              model.start_operation('NAUQ Xoay CAD', true)
+              target.transform!(rot)
+              model.commit_operation
+              model.active_view.invalidate
+              Logger.info("Đã xoay bản vẽ CAD #{deg.round}° quanh trục Z.")
+            end
+          end
+
           dialog.add_action_callback('confirm_and_build') do |_action_context, data_hash|
             if data_hash.is_a?(Hash)
               has_glass = data_hash['has_glass_transom'] == true || data_hash['has_glass_transom'] == 'true'
               glass_h = has_glass ? (data_hash['glass_height'].to_f) : 0.0
+              deduct_beam = data_hash['deduct_beam'] == true || data_hash['deduct_beam'] == 'true'
+              beam_d = data_hash['beam_depth'].to_f
+              beam_d = 400.0 if beam_d <= 0
 
               updates = {
                 wall_height: data_hash['wall_height'].to_f,
                 door_height: data_hash['door_height'].to_f,
                 window_height: data_hash['window_height'].to_f,
                 window_offset: data_hash['window_offset'].to_f,
-                glass_height: glass_h
+                glass_height: glass_h,
+                deduct_beam: deduct_beam,
+                beam_depth: beam_d
               }
 
               Config.update(updates)
@@ -111,7 +140,7 @@ module NAUQ
                   background-color: var(--bg-color);
                   color: var(--text-main);
                   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
-                  padding: 14px;
+                  padding: 12px 14px;
                   font-size: 12px;
                   line-height: 1.4;
                 }
@@ -157,46 +186,67 @@ module NAUQ
                   margin-top: 1px;
                 }
 
-                /* Preset Quick Selector */
-                .preset-card {
+                /* Unified Top Toolbar */
+                .top-toolbar {
                   background: #f0fdf4;
                   border: 1px solid #bbf7d0;
                   border-radius: 6px;
-                  padding: 7px 10px;
+                  padding: 6px 12px;
                   margin-bottom: 10px;
                   display: flex;
                   align-items: center;
                   justify-content: space-between;
+                  gap: 12px;
+                }
+
+                .toolbar-group {
+                  display: flex;
+                  align-items: center;
                   gap: 8px;
                 }
 
-                .preset-label {
+                .toolbar-label {
                   font-size: 11px;
                   font-weight: 700;
                   color: #166534;
                   white-space: nowrap;
                 }
 
-                .preset-controls {
-                  flex: 1;
-                  display: flex;
-                  justify-content: flex-end;
-                }
-
-                .preset-controls select {
+                .toolbar-group select {
                   background: #ffffff;
                   border: 1px solid #86efac;
                   color: #0f172a;
                   font-weight: 600;
-                  padding: 4px 7px;
+                  padding: 4px 8px;
                   border-radius: 4px;
                   font-size: 11px;
-                  width: 100%;
-                  max-width: 320px;
+                  min-width: 200px;
                   outline: none;
                 }
 
-                .preset-controls select:focus {
+                .toolbar-group select:focus {
+                  border-color: #16a34a;
+                }
+
+                .btn-group {
+                  display: flex;
+                  gap: 6px;
+                }
+
+                .btn-tool {
+                  background: #ffffff;
+                  color: var(--text-main);
+                  border: 1px solid #86efac;
+                  border-radius: 4px;
+                  padding: 4px 10px;
+                  font-size: 11px;
+                  font-weight: 600;
+                  cursor: pointer;
+                  transition: all 0.15s ease;
+                }
+
+                .btn-tool:hover {
+                  background: #dcfce7;
                   border-color: #16a34a;
                 }
 
@@ -211,6 +261,13 @@ module NAUQ
                   border: 1px solid var(--border-color);
                   border-radius: 6px;
                   padding: 10px 12px;
+                  display: flex;
+                  flex-direction: column;
+                  justify-content: flex-start;
+                }
+
+                .section.full-width {
+                  grid-column: span 2;
                 }
 
                 .section-title {
@@ -246,13 +303,13 @@ module NAUQ
                   color: var(--text-muted);
                 }
 
-                input[type="number"], select {
+                input[type="number"], input[type="text"], select {
                   background: #ffffff;
                   border: 1px solid var(--border-color);
                   color: var(--text-main);
                   border-radius: 4px;
                   padding: 5px 8px;
-                  font-size: 12px;
+                  font-size: 11.5px;
                   outline: none;
                 }
 
@@ -260,16 +317,23 @@ module NAUQ
                   border-color: var(--primary-color);
                 }
 
+                input:disabled {
+                  background: #f1f5f9 !important;
+                  color: #94a3b8 !important;
+                  opacity: 0.6;
+                  cursor: not-allowed;
+                }
+
                 .checkbox-row {
                   display: flex;
                   align-items: center;
                   gap: 6px;
-                  margin-bottom: 8px;
+                  margin-bottom: 4px;
                 }
 
                 .checkbox-row input {
-                  width: 15px;
-                  height: 15px;
+                  width: 14px;
+                  height: 14px;
                   cursor: pointer;
                 }
 
@@ -277,14 +341,14 @@ module NAUQ
                   display: flex;
                   justify-content: flex-end;
                   gap: 8px;
-                  margin-top: 12px;
+                  margin-top: 10px;
                 }
 
                 button {
                   padding: 6px 14px;
                   border-radius: 4px;
                   border: 1px solid transparent;
-                  font-size: 12px;
+                  font-size: 11.5px;
                   font-weight: 600;
                   cursor: pointer;
                 }
@@ -311,87 +375,87 @@ module NAUQ
             </head>
             <body>
               <div class="header">
-                <h2>KÍCH THƯỚC DỰNG 3D</h2>
-                <p>Nhập thông số kích thước Tường, Cửa đi và Cửa sổ trước khi tạo mô hình 3D</p>
+                <h2>THÔNG SỐ DỰNG 3D</h2>
+                <p>Xác nhận kích thước Tường, Dầm sàn, Cửa đi và Cửa sổ trước khi tạo mô hình 3D</p>
               </div>
 
-              <!-- Quick Presets -->
-              <div class="preset-card">
-                <div class="preset-label">
-                  <span>Cấu hình mẫu (Preset):</span>
-                </div>
-                <div class="preset-controls">
+              <!-- Unified Top Toolbar: Presets & Rotate in 1 Row -->
+              <div class="top-toolbar">
+                <div class="toolbar-group">
+                  <span class="toolbar-label">Cấu hình mẫu:</span>
                   <select id="presetSelect" onchange="onPresetChange(this.value)">
                     <!-- Populated dynamically -->
                   </select>
+                </div>
+                <div class="toolbar-group">
+                  <span class="toolbar-label">Xoay CAD 2D:</span>
+                  <div class="btn-group">
+                    <button type="button" class="btn-tool" onclick="rotateCad(-90)">-90°</button>
+                    <button type="button" class="btn-tool" onclick="rotateCad(90)">+90°</button>
+                  </div>
                 </div>
               </div>
 
               <form id="buildForm">
                 <div class="sections-grid">
-                  <!-- Cot trai: Tuong & Cua so -->
-                  <div style="display: flex; flex-direction: column; gap: 10px;">
-                    <!-- Tuong Section -->
-                    <div class="section">
-                      <div class="section-title">Tường 3D</div>
-                      <div class="form-grid">
-                        <div class="form-group full">
-                          <label>Chiều cao tường (mm)</label>
-                          <input type="number" id="wall_height" name="wall_height" step="10" required>
-                        </div>
+                  <!-- Row 1 Left: Tường & Dầm sàn -->
+                  <div class="section">
+                    <div class="section-title">Tường &amp; Dầm Sàn</div>
+                    <div class="form-grid">
+                      <div class="form-group full">
+                        <label>Chiều cao tường (mm)</label>
+                        <input type="number" id="wall_height" name="wall_height" step="10" required>
                       </div>
-                    </div>
-
-                    <!-- Cua so Section -->
-                    <div class="section">
-                      <div class="section-title">Cửa sổ (Window)</div>
-                      <div class="form-grid">
-                        <div class="form-group">
-                          <label>Cote bậu cửa sổ (Offset mm)</label>
-                          <input type="number" id="window_offset" name="window_offset" step="10" oninput="updateCalculatedWindowHeight()" onchange="updateCalculatedWindowHeight()" required>
+                      <div class="form-group full" style="margin-top: 4px;">
+                        <div class="checkbox-row">
+                          <input type="checkbox" id="deduct_beam" name="deduct_beam" onchange="toggleBeamInput()">
+                          <label for="deduct_beam" style="color: var(--text-main); cursor: pointer; font-weight: 600;">Trừ dầm &amp; Tạo sàn trên</label>
                         </div>
-                        <div class="form-group">
-                          <label>Chiều cao cửa sổ (Tự tính mm)</label>
-                          <input type="number" id="window_height_display" disabled style="background: #f1f5f9; color: var(--primary-color); font-weight: 700;">
-                        </div>
+                        <label id="beam_depth_label">Chiều cao dầm (mm)</label>
+                        <input type="number" id="beam_depth" name="beam_depth" step="10" value="400">
                       </div>
                     </div>
                   </div>
 
-                  <!-- Cot phai: Cote tren cua & O kinh phia tren -->
-                  <div style="display: flex; flex-direction: column; gap: 10px;">
-                    <!-- Cote tren cua Section -->
-                    <div class="section">
-                      <div class="section-title">Cote trên cửa (Lanh-tô)</div>
-                      <div class="form-grid">
-                        <div class="form-group full">
-                          <label>Cote trên cửa (mm)</label>
-                          <input type="number" id="door_height" name="door_height" step="10" placeholder="VD: 2200" oninput="updateCalculatedWindowHeight()" onchange="updateCalculatedWindowHeight()" required>
-                          <span style="font-size: 10px; color: var(--text-muted); margin-top: 2px;">Áp dụng làm cao độ lanh-tô mép trên cho cả Cửa đi và Cửa sổ</span>
+                  <!-- Row 1 Right: Cửa đi & Lanh-tô -->
+                  <div class="section">
+                    <div class="section-title">Cửa Đi &amp; Lanh-tô</div>
+                    <div class="form-grid">
+                      <div class="form-group full">
+                        <label>Cote lanh-tô / Cửa đi (mm)</label>
+                        <input type="number" id="door_height" name="door_height" step="10" placeholder="VD: 2200" oninput="updateCalculatedWindowHeight()" onchange="updateCalculatedWindowHeight()" required>
+                      </div>
+                      <div class="form-group full" style="margin-top: 4px;">
+                        <div class="checkbox-row">
+                          <input type="checkbox" id="has_glass_transom" name="has_glass_transom" onchange="toggleGlassInput()">
+                          <label for="has_glass_transom" style="color: var(--text-main); cursor: pointer; font-weight: 600;">Ô kính lanh-tô (Transom)</label>
                         </div>
+                        <label id="glass_height_label">Chiều cao ô kính (mm)</label>
+                        <input type="number" id="glass_height" name="glass_height" step="10">
                       </div>
                     </div>
+                  </div>
 
-                    <!-- O kinh phia tren Section -->
-                    <div class="section">
-                      <div class="section-title">Ô fix kính</div>
-                      <div class="checkbox-row">
-                        <input type="checkbox" id="has_glass_transom" name="has_glass_transom" onchange="toggleGlassInput()">
-                        <label for="has_glass_transom" style="color: var(--text-main); cursor: pointer;">Ô kính phía trên</label>
+                  <!-- Row 2 Full-width: Cửa sổ -->
+                  <div class="section full-width">
+                    <div class="section-title">Cửa Sổ (Window)</div>
+                    <div class="form-grid">
+                      <div class="form-group">
+                        <label>Cote bậu cửa sổ (Offset mm)</label>
+                        <input type="number" id="window_offset" name="window_offset" step="10" oninput="updateCalculatedWindowHeight()" onchange="updateCalculatedWindowHeight()" required>
                       </div>
-                      <div class="form-grid">
-                        <div class="form-group full">
-                          <label id="glass_height_label">Chiều cao ô kính (mm)</label>
-                          <input type="number" id="glass_height" name="glass_height" step="10">
-                        </div>
+                      <div class="form-group">
+                        <label>Chiều cao cửa sổ (Tự tính mm)</label>
+                        <input type="number" id="window_height_display" disabled style="background: #f1f5f9; color: var(--primary-color); font-weight: 700;">
                       </div>
                     </div>
+                    <div style="font-size: 10px; color: var(--text-muted); margin-top: 6px;">* Chiều cao cửa sổ được tự động tính: Cote lanh-tô (Cửa đi) trừ đi Cote bậu cửa.</div>
                   </div>
                 </div>
 
                 <div class="actions">
                   <button type="button" class="btn-secondary" onclick="closeForm()">Hủy</button>
-                  <button type="button" class="btn-primary" onclick="confirmAndBuild()">[ĐỒNG Ý & DỰNG 3D]</button>
+                  <button type="button" class="btn-primary" onclick="confirmAndBuild()">Đồng ý &amp; Dựng 3D</button>
                 </div>
               </form>
 
@@ -403,6 +467,12 @@ module NAUQ
                     sketchup.get_build_params();
                   }
                 });
+
+                function rotateCad(deg) {
+                  if (window.sketchup) {
+                    sketchup.rotate_cad(deg);
+                  }
+                }
 
                 function updateCalculatedWindowHeight() {
                   const topCote = Number(document.getElementById('door_height').value) || 2200;
@@ -445,6 +515,11 @@ module NAUQ
                     document.getElementById('has_glass_transom').checked = (glassH > 0);
                     document.getElementById('glass_height').value = glassH;
                     toggleGlassInput();
+
+                    const deductBeam = !!d.deduct_beam;
+                    document.getElementById('deduct_beam').checked = deductBeam;
+                    document.getElementById('beam_depth').value = d.beam_depth || 400;
+                    toggleBeamInput();
                   }
                 }
 
@@ -457,8 +532,12 @@ module NAUQ
                   const hasGlass = !!data.has_glass_transom;
                   document.getElementById('has_glass_transom').checked = hasGlass;
                   document.getElementById('glass_height').value = data.glass_height || 350;
-
                   toggleGlassInput();
+
+                  const deductBeam = !!data.deduct_beam;
+                  document.getElementById('deduct_beam').checked = deductBeam;
+                  document.getElementById('beam_depth').value = data.beam_depth || 400;
+                  toggleBeamInput();
                 }
 
                 function toggleGlassInput() {
@@ -466,13 +545,17 @@ module NAUQ
                   const glassInput = document.getElementById('glass_height');
                   const glassLabel = document.getElementById('glass_height_label');
 
-                  if (checked) {
-                    glassInput.disabled = false;
-                    if (glassLabel) glassLabel.style.color = '#64748b';
-                  } else {
-                    glassInput.disabled = true;
-                    if (glassLabel) glassLabel.style.color = '#cbd5e1';
-                  }
+                  glassInput.disabled = !checked;
+                  if (glassLabel) glassLabel.style.color = checked ? 'var(--text-muted)' : '#cbd5e1';
+                }
+
+                function toggleBeamInput() {
+                  const checked = document.getElementById('deduct_beam').checked;
+                  const beamInput = document.getElementById('beam_depth');
+                  const beamLabel = document.getElementById('beam_depth_label');
+
+                  beamInput.disabled = !checked;
+                  if (beamLabel) beamLabel.style.color = checked ? 'var(--text-muted)' : '#cbd5e1';
                 }
 
                 function confirmAndBuild() {
@@ -482,6 +565,8 @@ module NAUQ
                   const window_height = Math.max(door_height - window_offset, 100);
                   const has_glass_transom = document.getElementById('has_glass_transom').checked;
                   const glass_height = Number(document.getElementById('glass_height').value);
+                  const deduct_beam = document.getElementById('deduct_beam').checked;
+                  const beam_depth = Number(document.getElementById('beam_depth').value);
 
                   const data = {
                     wall_height: wall_height,
@@ -489,7 +574,9 @@ module NAUQ
                     window_height: window_height,
                     window_offset: window_offset,
                     has_glass_transom: has_glass_transom,
-                    glass_height: glass_height
+                    glass_height: glass_height,
+                    deduct_beam: deduct_beam,
+                    beam_depth: beam_depth
                   };
 
                   if (window.sketchup) {

@@ -402,7 +402,7 @@ module NAUQ
         def is_door_or_window?(entity)
           return false unless entity.respond_to?(:get_attribute)
           Attribute.tagged_as?(entity, 'door') || Attribute.tagged_as?(entity, 'window') ||
-            entity.attribute_dictionary('TT_Door') || entity.attribute_dictionary('NAUQ_DOOR') || entity.attribute_dictionary('NAUQ_WINDOW') ||
+            entity.attribute_dictionary('Door') || entity.attribute_dictionary('NAUQ_DOOR') || entity.attribute_dictionary('NAUQ_WINDOW') ||
             (entity.name || '').upcase.start_with?('DOOR') || (entity.name || '').upcase.start_with?('WINDOW')
         end
       end
@@ -697,13 +697,13 @@ module NAUQ
             z_offset: read_z_offset(target, type).round(0),
             panel_count: panel_count,
             has_fix_top: has_fix_top,
-            fix_top_height: read_dimension(target, 'fix_top_height') || 350.0,
+            fix_top_height: read_fix_dimension(target, :top),
             has_fix_bottom: has_fix_bottom,
-            fix_bottom_height: read_dimension(target, 'fix_bottom_height') || 400.0,
+            fix_bottom_height: read_fix_dimension(target, :bottom),
             has_fix_left: has_fix_left,
-            fix_left_width: read_dimension(target, 'fix_left_width') || 300.0,
+            fix_left_width: read_fix_dimension(target, :left),
             has_fix_right: has_fix_right,
-            fix_right_width: read_dimension(target, 'fix_right_width') || 300.0,
+            fix_right_width: read_fix_dimension(target, :right),
             name: target.name || "Cửa #{type == 'door' ? 'đi' : 'sổ'}"
           }
 
@@ -733,13 +733,13 @@ module NAUQ
             z_offset: read_z_offset(first, type).round(0),
             panel_count: panel_count,
             has_fix_top: has_fix_top,
-            fix_top_height: read_dimension(first, 'fix_top_height') || 350.0,
+            fix_top_height: read_fix_dimension(first, :top),
             has_fix_bottom: has_fix_bottom,
-            fix_bottom_height: read_dimension(first, 'fix_bottom_height') || 400.0,
+            fix_bottom_height: read_fix_dimension(first, :bottom),
             has_fix_left: has_fix_left,
-            fix_left_width: read_dimension(first, 'fix_left_width') || 300.0,
+            fix_left_width: read_fix_dimension(first, :left),
             has_fix_right: has_fix_right,
-            fix_right_width: read_dimension(first, 'fix_right_width') || 300.0,
+            fix_right_width: read_fix_dimension(first, :right),
             name: "Đã chọn #{targets.length} cửa"
           }
 
@@ -770,7 +770,7 @@ module NAUQ
 
           has_fix_top = data_hash['has_fix_top'] == true || data_hash['has_fix_top'] == 'true'
           fix_top_h = data_hash['fix_top_height'].to_f
-          fix_top_h = 350.0 if fix_top_h <= 0 && has_fix_top
+          fix_top_h = (Config.get(:glass_height) || 350.0).to_f if fix_top_h <= 0 && has_fix_top
 
           has_fix_bottom = data_hash['has_fix_bottom'] == true || data_hash['has_fix_bottom'] == 'true'
           fix_bottom_h = data_hash['fix_bottom_height'].to_f
@@ -787,12 +787,16 @@ module NAUQ
           fix_opts = {
             has_fix_top: has_fix_top,
             fix_top_height: fix_top_h.mm,
+            fix_top_height_mm: fix_top_h,
             has_fix_bottom: has_fix_bottom,
             fix_bottom_height: fix_bottom_h.mm,
+            fix_bottom_height_mm: fix_bottom_h,
             has_fix_left: has_fix_left,
             fix_left_width: fix_left_w.mm,
+            fix_left_width_mm: fix_left_w,
             has_fix_right: has_fix_right,
-            fix_right_width: fix_right_w.mm
+            fix_right_width: fix_right_w.mm,
+            fix_right_width_mm: fix_right_w
           }
 
           if new_width <= 100 || new_height <= 100
@@ -906,15 +910,24 @@ module NAUQ
                 has_fix_b = true
               end
 
+              fix_t_h = read_fix_dimension(target, :top)
+              fix_b_h = read_fix_dimension(target, :bottom)
+              fix_l_w = read_fix_dimension(target, :left)
+              fix_r_w = read_fix_dimension(target, :right)
+
               fix_opts = {
                 has_fix_top: has_fix_t,
-                fix_top_height: (read_dimension(target, 'fix_top_height') || 350.0).mm,
+                fix_top_height: fix_t_h.mm,
+                fix_top_height_mm: fix_t_h,
                 has_fix_bottom: has_fix_b,
-                fix_bottom_height: (read_dimension(target, 'fix_bottom_height') || 400.0).mm,
+                fix_bottom_height: fix_b_h.mm,
+                fix_bottom_height_mm: fix_b_h,
                 has_fix_left: has_fix_l,
-                fix_left_width: (read_dimension(target, 'fix_left_width') || 300.0).mm,
+                fix_left_width: fix_l_w.mm,
+                fix_left_width_mm: fix_l_w,
                 has_fix_right: has_fix_r,
-                fix_right_width: (read_dimension(target, 'fix_right_width') || 300.0).mm
+                fix_right_width: fix_r_w.mm,
+                fix_right_width_mm: fix_r_w
               }
 
               new_w = detected[:width].mm
@@ -965,13 +978,13 @@ module NAUQ
                 z_offset: detected[:z_offset].round(0),
                 panel_count: panel_count,
                 has_fix_top: has_fix_t,
-                fix_top_height: read_dimension(target, 'fix_top_height') || 350.0,
+                fix_top_height: fix_t_h,
                 has_fix_bottom: has_fix_b,
-                fix_bottom_height: read_dimension(target, 'fix_bottom_height') || 400.0,
+                fix_bottom_height: fix_b_h,
                 has_fix_left: has_fix_l,
-                fix_left_width: read_dimension(target, 'fix_left_width') || 300.0,
+                fix_left_width: fix_l_w,
                 has_fix_right: has_fix_r,
-                fix_right_width: read_dimension(target, 'fix_right_width') || 300.0,
+                fix_right_width: fix_r_w,
                 name: (type == :door ? 'Cửa đi' : 'Cửa sổ') + " (Đã khớp #{detected[:width].round(0)}x#{detected[:height].round(0)})"
               }
 
@@ -1362,44 +1375,178 @@ module NAUQ
         end
 
         def read_has_fix(entity, direction)
-          key = "has_fix_#{direction}"
-          val = Attribute.get(entity, key) || entity.get_attribute('NAUQ_DOOR', key) || entity.get_attribute('NAUQ_WINDOW', key)
+          dir_sym = direction.to_s.downcase.to_sym
+          key = "has_fix_#{dir_sym}"
+
+          val = Attribute.get(entity, key) ||
+                (entity.get_attribute('NAUQ_Door', key) rescue nil) ||
+                (entity.get_attribute('NAUQ_DOOR', key) rescue nil) ||
+                (entity.get_attribute('NAUQ_WINDOW', key) rescue nil)
           return true if val == true || val.to_s == 'true' || val.to_i == 1
-          if direction == :top || direction == 'top'
-            return true if read_has_fix_top(entity)
-          elsif (direction == :bottom || direction == 'bottom') && is_entity_window?(entity)
-            z_off = read_z_offset(entity, 'window')
-            return true if z_off < 200.0
+
+          if dir_sym == :top
+            val_t = Attribute.get(entity, 'has_fix_top') || (entity.get_attribute('NAUQ_Door', 'has_fix_top') rescue nil)
+            return true if val_t == true || val_t.to_s == 'true' || val_t.to_i == 1
           end
+
+          # Kiểm tra trực tiếp các group con 3D của cửa
+          ents = if entity.respond_to?(:entities)
+                   entity.entities
+                 elsif entity.respond_to?(:definition)
+                   entity.definition.entities rescue nil
+                 end
+
+          if ents
+            groups = defined?(Sketchup::Group) ? ents.grep(Sketchup::Group) : ents.select { |e| e.respond_to?(:name) }
+            case dir_sym
+            when :top
+              return true if groups.any? { |g| g.valid? && (g.name =~ /GLASS_FIX_TOP/i || g.name =~ /FIX_TOP/i || g.name =~ /TRANSOM/i || g.name == 'GLASS_FIX') }
+            when :bottom
+              return true if groups.any? { |g| g.valid? && (g.name =~ /GLASS_FIX_BOT/i || g.name =~ /FIX_BOT/i) }
+            when :left
+              return true if groups.any? { |g| g.valid? && (g.name =~ /GLASS_FIX_LEFT/i || g.name =~ /FIX_LEFT/i) }
+            when :right
+              return true if groups.any? { |g| g.valid? && (g.name =~ /GLASS_FIX_RIGHT/i || g.name =~ /FIX_RIGHT/i) }
+            end
+          end
+
           false
         end
 
         def read_has_fix_top(entity)
-          val = Attribute.get(entity, 'has_fix_top') || entity.get_attribute('NAUQ_DOOR', 'has_fix_top') || entity.get_attribute('NAUQ_WINDOW', 'has_fix_top')
-          return true if val == true || val.to_s == 'true' || val.to_i == 1
-          name = (entity.name || '').upcase
-          return true if name.include?('FIX')
-          false
+          read_has_fix(entity, :top)
+        end
+
+        # Đọc chính xác kích thước ô fix theo hướng (:top, :bottom, :left, :right)
+        # 1. Attribute đã lưu (hỗ trợ Length, inch, mm)
+        # 2. Đo đạc trực tiếp từ 3D bounding box của group kính fix
+        # 3. Mặc định từ Config
+        def read_fix_dimension(entity, direction)
+          dir_sym = direction.to_s.downcase.to_sym
+          is_height = [:top, :bottom].include?(dir_sym)
+
+          # 1. Tra cứu qua Attribute Dictionaries
+          attr_keys = case dir_sym
+          when :top
+            %w[fix_top_height_mm fix_top_height fix_module_height_mm fix_module_height glass_height_mm glass_height transom_height_mm transom_height]
+          when :bottom
+            %w[fix_bottom_height_mm fix_bottom_height fix_bot_height_mm fix_bot_height]
+          when :left
+            %w[fix_left_width_mm fix_left_width]
+          when :right
+            %w[fix_right_width_mm fix_right_width]
+          else
+            []
+          end
+
+          dicts = %w[NAUQ_CAD_TO_3D NAUQ_Door NAUQ_DOOR NAUQ_WINDOW]
+
+          attr_keys.each do |k|
+            dicts.each do |d|
+              val = (d == 'NAUQ_CAD_TO_3D') ? Attribute.get(entity, k) : (entity.get_attribute(d, k) rescue nil)
+              next if val.nil? || val == ''
+
+              val_mm = if (defined?(::Length) && val.is_a?(::Length)) || val.class.name.to_s.end_with?('Length')
+                         val.to_mm
+                       else
+                         num = val.to_f
+                         (num > 0 && num < 100.0) ? (num * 25.4) : num
+                       end
+
+              return val_mm.round(1) if val_mm > 30.0
+            end
+          end
+
+          # 2. Đo đạc trực tiếp từ 3D bounding box của các sub-group hình học ô kính fix
+          ents = if entity.respond_to?(:entities)
+                   entity.entities
+                 elsif entity.respond_to?(:definition)
+                   entity.definition.entities rescue nil
+                 end
+
+          if ents
+            groups = defined?(Sketchup::Group) ? ents.grep(Sketchup::Group) : ents.select { |e| e.respond_to?(:name) }
+            target_group = case dir_sym
+            when :top
+              groups.find do |g|
+                g.valid? && (g.name =~ /GLASS_FIX_TOP/i || g.name =~ /FIX_TOP/i || g.name =~ /TRANSOM/i || g.name == 'GLASS_FIX')
+              end
+            when :bottom
+              groups.find do |g|
+                g.valid? && (g.name =~ /GLASS_FIX_BOT/i || g.name =~ /FIX_BOT/i)
+              end
+            when :left
+              ents.grep(Sketchup::Group).find do |g|
+                g.valid? && (g.name =~ /GLASS_FIX_LEFT/i || g.name =~ /FIX_LEFT/i)
+              end
+            when :right
+              groups.find do |g|
+                g.valid? && (g.name =~ /GLASS_FIX_RIGHT/i || g.name =~ /FIX_RIGHT/i)
+              end
+            end
+
+            if target_group && target_group.valid? && !target_group.bounds.empty?
+              measured = if is_height
+                           h = target_group.bounds.height
+                           h.respond_to?(:to_mm) ? h.to_mm : (h * 25.4)
+                         else
+                           w = target_group.bounds.width
+                           d = target_group.bounds.depth
+                           w_mm = w.respond_to?(:to_mm) ? w.to_mm : (w * 25.4)
+                           d_mm = d.respond_to?(:to_mm) ? d.to_mm : (d * 25.4)
+                           [w_mm, d_mm].max
+                         end
+              return measured.round(1) if measured > 30.0
+            end
+          end
+
+          # 3. Fallback mặc định
+          case dir_sym
+          when :top
+            (Config.get(:glass_height) || 350.0).to_f
+          when :bottom
+            400.0
+          when :left, :right
+            300.0
+          else
+            350.0
+          end
         end
 
         def read_dimension(entity, key)
+          if key.to_s.start_with?('fix_')
+            case key.to_s
+            when /fix.*top/i then return read_fix_dimension(entity, :top)
+            when /fix.*bot/i then return read_fix_dimension(entity, :bottom)
+            when /fix.*left/i then return read_fix_dimension(entity, :left)
+            when /fix.*right/i then return read_fix_dimension(entity, :right)
+            end
+          end
+
           val = Attribute.get(entity, "#{key}_mm") || Attribute.get(entity, key) ||
-                entity.get_attribute('TT_Door', "#{key}_mm") ||
-                entity.get_attribute('NAUQ_DOOR', key) || entity.get_attribute('NAUQ_WINDOW', key)
+                (entity.get_attribute('NAUQ_Door', "#{key}_mm") rescue nil) ||
+                (entity.get_attribute('NAUQ_Door', key) rescue nil) ||
+                (entity.get_attribute('NAUQ_DOOR', key) rescue nil) ||
+                (entity.get_attribute('NAUQ_WINDOW', key) rescue nil)
 
           if val
+            return val.to_mm if (defined?(::Length) && val.is_a?(::Length)) || val.class.name.to_s.end_with?('Length')
+
             val_f = val.to_f
-            if key == 'height' && val_f > 0 && val_f < 150.0
-              val_f = val_f.inch.to_mm
-            elsif key == 'width' && val_f > 0 && val_f < 100.0
-              val_f = val_f.inch.to_mm
+            if key.to_s.include?('height') && val_f > 0 && val_f < 150.0
+              val_f = (val_f * 25.4)
+            elsif key.to_s.include?('width') && val_f > 0 && val_f < 100.0
+              val_f = (val_f * 25.4)
             end
             return val_f if val_f > 100.0
           end
 
           if entity.respond_to?(:bounds) && !entity.bounds.empty?
-            return entity.bounds.height.to_mm if key == 'height' && entity.bounds.height.to_mm > 100.0
-            return [entity.bounds.width.to_mm, entity.bounds.depth.to_mm].max if key == 'width'
+            h = entity.bounds.height
+            h_mm = h.respond_to?(:to_mm) ? h.to_mm : (h * 25.4)
+            return h_mm if key.to_s.include?('height') && h_mm > 100.0
+            w_max = [entity.bounds.width, entity.bounds.depth].max
+            return (w_max.respond_to?(:to_mm) ? w_max.to_mm : (w_max * 25.4)) if key.to_s.include?('width')
           end
           nil
         end
@@ -2545,14 +2692,14 @@ module NAUQ
                   var frameT = 4;
                   var basePanelW = (panels === 1) ? 90 : (panels === 2 ? 65 : (panels === 3 ? 50 : 45));
                   var actW = basePanelW * panels;
-                  var fixLW = hasFixL ? 38 : 0;
-                  var fixRW = hasFixR ? 38 : 0;
+                  var fixLW = hasFixL ? Math.max(Math.min(Math.round((fixLeftW_val / Math.max(wInput, 1)) * actW), 60), 20) : 0;
+                  var fixRW = hasFixR ? Math.max(Math.min(Math.round((fixRightW_val / Math.max(wInput, 1)) * actW), 60), 20) : 0;
 
                   var W = fixLW + actW + fixRW + 2 * frameT + (hasFixL ? frameT : 0) + (hasFixR ? frameT : 0);
                   var H = 160;
 
-                  var fixTH = hasFixT ? 30 : 0;
-                  var fixBH = hasFixB ? 30 : 0;
+                  var fixTH = hasFixT ? Math.max(Math.min(Math.round((fixTopH_val / Math.max(hInput, 1)) * H), 60), 18) : 0;
+                  var fixBH = hasFixB ? Math.max(Math.min(Math.round((fixBotH_val / Math.max(hInput, 1)) * H), 60), 18) : 0;
 
                   var ox = 10;
                   var oy = 10;

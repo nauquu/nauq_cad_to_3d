@@ -5,68 +5,129 @@ module NAUQ
     # Quản lý sự kiện sau khi đặt component CAD bằng lệnh native model.place_component
     module CADPlacementManager
       class CADPlacementObserver < Sketchup::ToolsObserver
+        CAMERA_TOOL_NAMES = %w[PanTool CameraPanTool OrbitTool CameraOrbitTool ZoomTool CameraZoomTool CameraWalkTool].freeze
+
+        def initialize(manager)
+          @manager = manager
+        end
+
+        def onActiveToolChanged(tools, tool_name, _tool_id)
+          return if @manager.finished?
+
+          # Skip camera navigation tools (Shift+drag pan, orbit, zoom)
+          t_name = tool_name.to_s
+          return if CAMERA_TOOL_NAMES.include?(t_name) || t_name =~ /pan|orbit|zoom|camera|walk/i
+
+          @manager.on_tool_changed(tools)
+        end
+      end
+
+      class CADPlacementEntitiesObserver < Sketchup::EntitiesObserver
+        def initialize(manager)
+          @manager = manager
+        end
+
+        def onElementAdded(_entities, entity)
+          return if @manager.finished?
+
+          if entity.is_a?(Sketchup::ComponentInstance) && entity.definition == @manager.definition
+            @manager.handle_placed_instance(entity)
+          end
+        end
+      end
+
+      class PlacementSession
+        attr_reader :definition
+
         def initialize(definition, file_path, &callback)
           @definition = definition
           @file_path = file_path
           @callback = callback
-          @active_count = 0
           @finished = false
+          @active_count = 0
+          @tool_obs = nil
+          @entities_obs = nil
         end
 
-        def onActiveToolChanged(tools, _tool_name, _tool_id)
-          return if @finished
+        def finished?
+          @finished
+        end
 
+        def attach(model)
+          @tool_obs = CADPlacementObserver.new(self)
+          @entities_obs = CADPlacementEntitiesObserver.new(self)
+
+          model.tools.add_observer(@tool_obs)
+          model.entities.add_observer(@entities_obs)
+        end
+
+        def detach
+          model = Sketchup.active_model
+          return unless model
+
+          model.tools.remove_observer(@tool_obs) if @tool_obs rescue nil
+          model.entities.remove_observer(@entities_obs) if @entities_obs rescue nil
+          @tool_obs = nil
+          @entities_obs = nil
+        end
+
+        def on_tool_changed(_tools)
           @active_count += 1
-
-          # Lần 1: kích hoạt place_component -> bỏ qua
           return if @active_count <= 1
 
-          # Lần 2: kết thúc place_component (đặt xong hoặc bấm ESC)
+          # Tool switched after initial place_component
+          UI.start_timer(0.05, false) do
+            next if @finished
+
+            model = Sketchup.active_model
+            placed_inst = model.entities.grep(Sketchup::ComponentInstance).find { |i| i.definition == @definition }
+            if placed_inst && placed_inst.valid?
+              handle_placed_instance(placed_inst)
+            else
+              # User cancelled via ESC or selected another tool
+              @finished = true
+              detach
+              model.select_tool(nil) rescue nil
+            end
+          end
+        end
+
+        def handle_placed_instance(placed_inst)
+          return if @finished
           @finished = true
-          tools.remove_observer(self) rescue nil
+
+          detach
 
           UI.start_timer(0.05, false) do
             model = Sketchup.active_model
-            # Tìm instance vừa đặt trong model.entities
-            # Root context lookup is intentional (paste target = root model).
-            placed_inst = model.entities.grep(Sketchup::ComponentInstance).find { |i| i.definition == @definition } # rubocop:disable SketchupSuggestions/ModelEntities
+            return unless placed_inst && placed_inst.valid? && model
 
-            if placed_inst && placed_inst.valid?
-              DWGReader.ensure_subgroups(model)
-              cad_parent = DWGReader.find_or_create_cad_original_group(model)
+            DWGReader.ensure_subgroups(model)
 
-              # transparent = true (4th arg): observer-initiated model changes
-              # must chain onto the user's previous undo step
-              # (SketchupRequirements/ObserversStartOperation).
-              model.start_operation('NAUQ Đặt Bản Vẽ CAD', true, false, true)
-              begin
-                t_world = placed_inst.transformation
-                t_local = cad_parent.transformation.inverse * t_world
-                final_inst = cad_parent.entities.add_instance(@definition, t_local)
-                final_inst.name = @definition.name
+            model.start_operation('NAUQ Đặt Bản Vẽ CAD', true, false, true)
+            begin
+              # Giữ bản vẽ CAD độc lập tại model.entities, không gom vào một group chung gây ẩn/đè bản vẽ khác
+              placed_inst.name = @definition.name
+              placed_inst.visible = true if placed_inst.respond_to?(:visible=)
+              placed_inst.hidden = false if placed_inst.respond_to?(:hidden=)
 
-                Attribute.tag(cad_parent, 'cad_original', file: @file_path, imported_at: Time.now.to_s)
-                Attribute.tag(final_inst, 'dwg_import_item', file: @file_path, imported_at: Time.now.to_s)
-                Attribute.tag(final_inst, 'dwg_import', name: @definition.name)
+              Attribute.tag(placed_inst, 'cad_original', file: @file_path, imported_at: Time.now.to_s)
+              Attribute.tag(placed_inst, 'dwg_import_item', file: @file_path, imported_at: Time.now.to_s)
+              Attribute.tag(placed_inst, 'dwg_import', name: @definition.name)
 
-                placed_inst.erase!
-                model.commit_operation
-                model.active_view.invalidate
+              model.commit_operation
+              model.active_view.invalidate
 
-                # Thoát hoàn toàn chế độ đặt đối tượng, đưa con trỏ về công cụ Select bình thường
-                model.select_tool(nil)
+              model.select_tool(nil) rescue nil
+              Logger.info("Đã đặt bản vẽ CAD '#{@definition.name}' độc lập vào mô hình.") if defined?(Logger)
 
-                Logger.info("Đã chuyển bản vẽ CAD '#{@definition.name}' vào NAUQ_CAD_ORIGINAL.") if defined?(Logger)
-
-                # Mở BuildDialog ngay lập tức sau khi đặt bản vẽ xuống!
-                if @callback
-                  UI.start_timer(0.05, false) { @callback.call(final_inst) }
-                end
-              rescue StandardError => e
-                model.abort_operation
-                model.select_tool(nil)
-                Logger.error("Lỗi khi tổ chức CAD vào thư mục: #{e.message}") if defined?(Logger)
+              if @callback
+                UI.start_timer(0.05, false) { @callback.call(placed_inst) }
               end
+            rescue StandardError => e
+              model.abort_operation
+              model.select_tool(nil) rescue nil
+              Logger.error("Lỗi khi hoàn tất đặt bản vẽ CAD: #{e.message}") if defined?(Logger)
             end
           end
         end
@@ -77,10 +138,11 @@ module NAUQ
           model = Sketchup.active_model
           return unless model && definition && definition.valid?
 
-          tool_obs = CADPlacementObserver.new(definition, file_path, &on_placed)
-          model.tools.add_observer(tool_obs)
+          session = PlacementSession.new(definition, file_path, &on_placed)
+          session.attach(model)
 
           UI.start_timer(0.05, false) do
+            DWGReader.restore_camera(model) rescue nil
             model.place_component(definition, false)
           end
         end

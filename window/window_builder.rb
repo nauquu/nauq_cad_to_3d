@@ -77,7 +77,7 @@ module NAUQ
             leaf_height,
             frame_mat,
             glass_mat,
-            'TT_WIN_LEAF'
+            'NAUQ_WIN_LEAF'
           )
 
           # 3. Create LEAF Instances (each instance contains frame + its own embedded glass)
@@ -210,7 +210,10 @@ module NAUQ
               t_shift = Geom::Transformation.translation(Geom::Vector3d.new(-w_len / 2.0, 0, 0))
               rad = dir && dir.valid? ? Math.atan2(dir.y, dir.x) : 0.0
               t_rot = Geom::Transformation.rotation(Geom::Point3d.new(0, 0, 0), Geom::Vector3d.new(0, 0, 1), rad)
-              t_pos = Geom::Transformation.translation(pos)
+              target_z = pos.z
+              target_z = Geometry.mm_to_inch(z_off_mm) if target_z.abs < 1e-4 && z_off_mm > 0
+              pos_3d = Geom::Point3d.new(pos.x, pos.y, target_z)
+              t_pos = Geom::Transformation.translation(pos_3d)
               win_assembly.transform!(t_pos * t_rot * t_shift)
 
               # Set Attributes
@@ -219,6 +222,10 @@ module NAUQ
               Attribute.set(win_assembly, 'height', h_mm, 'NAUQ_WINDOW')
               Attribute.set(win_assembly, 'leaf_count', panel_count, 'NAUQ_WINDOW')
               Attribute.set(win_assembly, 'z_offset', z_off_mm, 'NAUQ_WINDOW')
+              Attribute.set(win_assembly, 'has_fix_top', has_transom, 'NAUQ_WINDOW')
+              Attribute.set(win_assembly, 'fix_top_height', glass_h_mm, 'NAUQ_WINDOW')
+              Attribute.set(win_assembly, 'has_fix_bottom', has_bottom_fix, 'NAUQ_WINDOW')
+              Attribute.set(win_assembly, 'fix_bottom_height', fix_bot_h_mm, 'NAUQ_WINDOW')
               Attribute.tag(
                 win_assembly,
                 'window',
@@ -228,8 +235,11 @@ module NAUQ
                 leaf_count: panel_count,
                 z_offset: z_off_mm,
                 has_fix_top: has_transom,
+                fix_top_height: glass_h_mm,
+                fix_top_height_mm: glass_h_mm,
                 has_fix_bottom: has_bottom_fix,
                 fix_bottom_height: fix_bot_h_mm,
+                fix_bottom_height_mm: fix_bot_h_mm,
                 source_cad_id: cad_id
               )
 

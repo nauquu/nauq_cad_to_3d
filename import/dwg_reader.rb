@@ -24,6 +24,51 @@ module NAUQ
       ].freeze
 
       class << self
+        attr_accessor :last_saved_camera
+
+        # Lưu lại trạng thái camera hiện tại của viewport trước các thao tác làm thay đổi camera (như import DWG)
+        def capture_camera(model = Sketchup.active_model)
+          return nil unless model
+          view = model.active_view
+          return nil unless view && view.camera
+
+          cam = view.camera
+          is_persp = cam.perspective?
+          {
+            eye: cam.eye.clone,
+            target: cam.target.clone,
+            up: cam.up.clone,
+            perspective: is_persp,
+            fov: cam.fov,
+            height: (!is_persp && cam.respond_to?(:height)) ? cam.height : nil,
+            aspect_ratio: cam.aspect_ratio
+          }
+        rescue StandardError => e
+          Logger.debug("Không thể lưu camera: #{e.message}") if defined?(Logger)
+          nil
+        end
+
+        # Khôi phục trạng thái camera để loại bỏ hành vi tự động Zoom Extents (Shift+Z) của SketchUp
+        def restore_camera(model = Sketchup.active_model, cam_props = nil)
+          cam_props ||= @last_saved_camera
+          return unless model && cam_props
+          view = model.active_view
+          return unless view && view.camera
+
+          cam = view.camera
+          cam.set(cam_props[:eye], cam_props[:target], cam_props[:up])
+          cam.perspective = cam_props[:perspective]
+          if cam_props[:perspective]
+            cam.fov = cam_props[:fov] if cam_props[:fov]
+          elsif cam_props[:height] && cam.respond_to?(:height=)
+            cam.height = cam_props[:height]
+          end
+          cam.aspect_ratio = cam_props[:aspect_ratio] if cam_props[:aspect_ratio] && cam_props[:aspect_ratio] > 0
+          view.invalidate
+        rescue StandardError => e
+          Logger.debug("Không thể khôi phục camera: #{e.message}") if defined?(Logger)
+        end
+
         # Import DWG directly into ComponentDefinition and return definition for native model.place_component
         # @param file_path [String] absolute path to .dwg file
         # @return [Sketchup::ComponentDefinition, nil] definition ready for placement
@@ -37,75 +82,85 @@ module NAUQ
             return nil
           end
 
-          # Ensure we are at model root level
-          model.close_active while model.active_path
+          # Lưu trạng thái camera của người dùng trước khi import
+          @last_saved_camera = capture_camera(model)
 
-          pre_entities = Set.new(model.entities.to_a)
+          begin
+            # Ensure we are at model root level
+            model.close_active while model.active_path
 
-          options = {
-            units: 'mm',
-            show_summary: false,
-            merge_coplanar: false,
-            orient_faces: false
-          }
+            pre_entities = Set.new(model.entities.to_a)
 
-          Progress.update(10, "Đang đọc DWG: #{File.basename(file_path)}...") if defined?(Progress)
-          success = model.import(file_path, options)
-          return nil unless success
+            options = {
+              units: 'mm',
+              show_summary: false,
+              merge_coplanar: false,
+              orient_faces: false
+            }
 
-          # Collect all entities imported by DWG
-          new_entities = model.entities.to_a.reject { |e| pre_entities.include?(e) }.select(&:valid?)
-          return nil if new_entities.empty?
+            Progress.update(10, "Đang đọc DWG: #{File.basename(file_path)}...") if defined?(Progress)
+            success = model.import(file_path, options)
+            return nil unless success
 
-          name = File.basename(file_path, '.*')
+            # Collect all entities imported by DWG
+            new_entities = model.entities.to_a.reject { |e| pre_entities.include?(e) }.select(&:valid?)
+            return nil if new_entities.empty?
 
-          # Group all CAD entities
-          if new_entities.size == 1 && (new_entities.first.is_a?(Sketchup::Group) || new_entities.first.is_a?(Sketchup::ComponentInstance))
-            cad_group = new_entities.first
-          else
-            cad_group = model.entities.add_group(new_entities)
-          end
+            name = File.basename(file_path, '.*')
 
-          # Convert to Component
-          comp_inst = cad_group.is_a?(Sketchup::Group) ? cad_group.to_component : cad_group
-          definition = comp_inst.definition
-          definition.name = "CAD_#{name}"
-
-          # Tìm điểm góc bắt đầu (Begin Point) chính xác tại góc nét layer tường (Wall Layer Corner)
-          wall_layer_setting = (Config.get(:wall_layer) || '0-netcat').to_s.strip
-          wall_segments = LayerParser.collect_segments_with_transform(comp_inst, wall_layer_setting)
-
-          if wall_segments.empty?
-            # Thử các tên layer tường thông dụng khác: 'tuong', 'wall', 'netcat', 'a-wall'
-            ['tuong', 'wall', 'netcat', 'a-wall'].each do |alt_lyr|
-              wall_segments = LayerParser.collect_segments_with_transform(comp_inst, alt_lyr)
-              break if wall_segments.any?
+            # Group all CAD entities
+            if new_entities.size == 1 && (new_entities.first.is_a?(Sketchup::Group) || new_entities.first.is_a?(Sketchup::ComponentInstance))
+              cad_group = new_entities.first
+            else
+              cad_group = model.entities.add_group(new_entities)
             end
+
+            # Convert to Component
+            comp_inst = cad_group.is_a?(Sketchup::Group) ? cad_group.to_component : cad_group
+            definition = comp_inst.definition
+            definition.name = "CAD_#{name}"
+            definition.behavior.snapto = 0 rescue nil
+            definition.behavior.is2d = false rescue nil
+
+            # Tìm điểm góc bắt đầu (Begin Point) chính xác tại góc nét layer tường (Wall Layer Corner)
+            wall_layer_setting = (Config.get(:wall_layer) || '0-netcat').to_s.strip
+            wall_segments = LayerParser.collect_segments_with_transform(comp_inst, wall_layer_setting)
+
+            if wall_segments.empty?
+              # Thử các tên layer tường thông dụng khác: 'tuong', 'wall', 'netcat', 'a-wall'
+              ['tuong', 'wall', 'netcat', 'a-wall'].each do |alt_lyr|
+                wall_segments = LayerParser.collect_segments_with_transform(comp_inst, alt_lyr)
+                break if wall_segments.any?
+              end
+            end
+
+            if wall_segments.any?
+              pts = wall_segments.flat_map { |s| [s[:start_pt], s[:end_pt]] }
+              min_x = pts.map(&:x).min
+              min_y = pts.map(&:y).min
+              min_z = pts.map(&:z).min
+              ideal_corner = Geom::Point3d.new(min_x, min_y, min_z)
+              # Chọn chính xác điểm đỉnh (Vertex) trên nét tường gần góc dưới-trái nhất
+              min_pt = pts.min_by { |p| p.distance(ideal_corner) }
+            else
+              # Fallback nếu không phát hiện nét tường: lấy góc dưới-trái của toàn bộ bản vẽ
+              bb = comp_inst.bounds
+              min_pt = Geom::Point3d.new(bb.min.x, bb.min.y, bb.min.z)
+            end
+
+            # Dời điểm góc nét tường về gốc tọa độ (0,0,0) để chuột neo chuẩn xác vào góc nét tường
+            tr = Geom::Transformation.translation(Geom::Vector3d.new(-min_pt.x, -min_pt.y, -min_pt.z))
+            definition.entities.transform_entities(tr, definition.entities.to_a)
+
+            # Erase the initial temporary instance
+            comp_inst.erase!
+
+            Logger.info("Đã nạp bản vẽ '#{definition.name}' vào ComponentDefinition — chuyển sang chế độ đặt theo chuột.")
+            definition
+          ensure
+            # Khôi phục góc nhìn camera ban đầu (loại bỏ hoàn toàn hiệu ứng tự động Zoom Extents / Shift+Z)
+            restore_camera(model, @last_saved_camera)
           end
-
-          if wall_segments.any?
-            pts = wall_segments.flat_map { |s| [s[:start_pt], s[:end_pt]] }
-            min_x = pts.map(&:x).min
-            min_y = pts.map(&:y).min
-            min_z = pts.map(&:z).min
-            ideal_corner = Geom::Point3d.new(min_x, min_y, min_z)
-            # Chọn chính xác điểm đỉnh (Vertex) trên nét tường gần góc dưới-trái nhất
-            min_pt = pts.min_by { |p| p.distance(ideal_corner) }
-          else
-            # Fallback nếu không phát hiện nét tường: lấy góc dưới-trái của toàn bộ bản vẽ
-            bb = comp_inst.bounds
-            min_pt = Geom::Point3d.new(bb.min.x, bb.min.y, bb.min.z)
-          end
-
-          # Dời điểm góc nét tường về gốc tọa độ (0,0,0) để chuột neo chuẩn xác vào góc nét tường
-          tr = Geom::Transformation.translation(Geom::Vector3d.new(-min_pt.x, -min_pt.y, -min_pt.z))
-          definition.entities.transform_entities(tr, definition.entities.to_a)
-
-          # Erase the initial temporary instance
-          comp_inst.erase!
-
-          Logger.info("Đã nạp bản vẽ '#{definition.name}' vào ComponentDefinition — chuyển sang chế độ đặt theo chuột.")
-          definition
         end
 
         # Import DWG file into model inside top-level NAUQ_CAD_ORIGINAL
@@ -231,7 +286,8 @@ module NAUQ
           model = Sketchup.active_model
           return cad_group unless model
 
-          cad_group = find_or_create_cad_original_group(model) unless cad_group && cad_group.valid?
+          unwrap_cad_original_group(model)
+          cad_group ||= CadTo3D.find_existing_cad_group(model) if defined?(CadTo3D) && CadTo3D.respond_to?(:find_existing_cad_group)
           cad_group
         end
 
@@ -239,7 +295,7 @@ module NAUQ
         def has_cad_geometry?(cad_group)
           return false if cad_group.nil? || !cad_group.valid?
 
-          count_edges(cad_group.entities) > 0
+          count_edges(cad_group.is_a?(Sketchup::ComponentInstance) ? cad_group.definition.entities : cad_group.entities) > 0
         end
 
         # Helper to count edges recursively
@@ -271,6 +327,11 @@ module NAUQ
             Attribute.tag(group, tag_name)
           end
 
+          if group && group.valid?
+            group.visible = true if group.respond_to?(:visible=)
+            group.hidden = false if group.respond_to?(:hidden=)
+          end
+
           group
         end
 
@@ -294,18 +355,51 @@ module NAUQ
           find_or_create_subgroup(model, SLAB_GROUP_NAME, 'slab_container')
         end
 
-        # Create top-level 4 container groups structure directly in model.entities
+        # Create top-level container groups structure directly in model.entities
         def ensure_subgroups(model = Sketchup.active_model)
           return [] unless model
 
           unwrap_legacy_root_group(model)
+          unwrap_cad_original_group(model)
 
           [
-            find_or_create_cad_original_group(model),
             find_or_create_walls_group(model),
             find_or_create_doors_group(model),
             find_or_create_windows_group(model)
           ]
+        end
+
+        # Unwrap legacy NAUQ_CAD_ORIGINAL group so existing models don't have lumped/hidden drawings
+        def unwrap_cad_original_group(model = Sketchup.active_model)
+          return unless model
+
+          cad_parent = model.entities.grep(Sketchup::Group).find do |g|
+            g.valid? && (g.name == CAD_ORIGINAL_GROUP_NAME || Attribute.tagged_as?(g, 'cad_original'))
+          end
+          return unless cad_parent && cad_parent.valid?
+
+          # Ensure container is unhidden
+          cad_parent.visible = true if cad_parent.respond_to?(:visible=)
+          cad_parent.hidden = false if cad_parent.respond_to?(:hidden=)
+
+          # Move all child CAD instances out to model level so each drawing is independent
+          cad_parent.entities.grep(Sketchup::ComponentInstance).each do |inst|
+            next unless inst.valid?
+
+            inst.visible = true if inst.respond_to?(:visible=)
+            inst.hidden = false if inst.respond_to?(:hidden=)
+            t_world = cad_parent.transformation * inst.transformation
+            new_inst = model.entities.add_instance(inst.definition, t_world)
+            new_inst.name = inst.name
+            new_inst.visible = true if new_inst.respond_to?(:visible=)
+            new_inst.hidden = false if new_inst.respond_to?(:hidden=)
+            Attribute.tag(new_inst, 'cad_original')
+            Attribute.tag(new_inst, 'dwg_import', name: inst.name)
+            inst.erase!
+          end
+
+          # If container is now empty of components, erase it
+          cad_parent.erase! if cad_parent.valid? && cad_parent.entities.grep(Sketchup::ComponentInstance).empty?
         end
 
         # Unwrap legacy NAUQ_Architecture parent group if present in model

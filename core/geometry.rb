@@ -191,6 +191,22 @@ module NAUQ
           proj_len = ((pt.x - line_pt.x) * u.x) + ((pt.y - line_pt.y) * u.y)
           Geom::Point3d.new(line_pt.x + (u.x * proj_len), line_pt.y + (u.y * proj_len), pt.z)
         end
+
+        # Get full world transformation matrix of an entity walking up its parent instances
+        def full_world_transform(entity)
+          return Geom::Transformation.new if entity.nil?
+
+          t = entity.respond_to?(:transformation) ? entity.transformation : Geom::Transformation.new
+          parent = entity.respond_to?(:parent) ? entity.parent : nil
+          while parent && parent.is_a?(Sketchup::ComponentDefinition)
+            parent_inst = parent.instances.find { |i| i.valid? }
+            break unless parent_inst
+
+            t = parent_inst.transformation * t
+            parent = parent_inst.parent
+          end
+          t
+        end
       end
     end
 

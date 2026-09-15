@@ -28,10 +28,12 @@ module NAUQ
           fix_t_h = if has_fix_t
             if opts[:fix_top_height]
               safe_to_inch(opts[:fix_top_height])
+            elsif opts[:fix_module_height]
+              safe_to_inch(opts[:fix_module_height])
             elsif opts[:leaf_height]
               h - safe_to_inch(opts[:leaf_height]) - 2 * fw
             else
-              350.0.mm
+              safe_to_inch((Config.get(:glass_height) || 350.0).mm)
             end
           else
             0

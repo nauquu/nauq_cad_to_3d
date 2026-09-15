@@ -98,8 +98,29 @@ module NAUQ
           matched_edges = match_wall_edges(op, nearby_segments, cand_dir)
 
           unless matched_edges
-            Logger.warn("Opening #{op_id}: Không tìm thấy đủ 2 cạnh mép tường (edge_left, edge_right) hợp lệ -> Bỏ qua không tạo cửa.")
-            return nil
+            # Fallback: Construct synthetic jambs from position, direction, width, and wall thickness (220mm)
+            Logger.info("Opening #{op_id}: Áp dụng Fallback Normalizer dựng jambs chuẩn xác từ tâm và hướng opening.")
+            pos = op[:position] || Geom::Point3d.new(0, 0, 0)
+            half_w_in = Geometry.mm_to_inch((op[:width_mm] || 1000.0) / 2.0)
+            thick_mm = op[:depth_mm] || 220.0
+            thick_mm = 220.0 if thick_mm < 50.0 || thick_mm > 550.0
+            half_thick_in = Geometry.mm_to_inch(thick_mm / 2.0)
+
+            norm_vec = Geom::Vector3d.new(-cand_dir.y, cand_dir.x, 0).normalize
+            p_left_center = pos.offset(cand_dir, -half_w_in)
+            p_right_center = pos.offset(cand_dir, half_w_in)
+
+            matched_edges = {
+              edge_left: [
+                p_left_center.offset(norm_vec, -half_thick_in),
+                p_left_center.offset(norm_vec, half_thick_in)
+              ],
+              edge_right: [
+                p_right_center.offset(norm_vec, -half_thick_in),
+                p_right_center.offset(norm_vec, half_thick_in)
+              ],
+              strategy: :fallback_synthetic
+            }
           end
 
           edge_left = matched_edges[:edge_left]
@@ -279,6 +300,33 @@ module NAUQ
           end
         end
 
+        # Kiểm tra có jamb cắt ngang trung gian nằm giữa 2 candidate jambs hay không
+        # Nếu có một jamb trung gian trên cùng tuyến tường -> 2 jamb này thuộc 2 lỗ mở khác nhau
+        def has_intermediate_jamb?(t1, t2, all_transverse)
+          mid1 = Geom::Point3d.new((t1[:p1].x + t1[:p2].x) / 2.0, (t1[:p1].y + t1[:p2].y) / 2.0, 0)
+          mid2 = Geom::Point3d.new((t2[:p1].x + t2[:p2].x) / 2.0, (t2[:p1].y + t2[:p2].y) / 2.0, 0)
+          span_vec = mid2 - mid1
+          span_len = span_vec.length
+          return false if span_len < 1.0e-4
+
+          span_dir = span_vec.normalize
+          margin = Geometry.mm_to_inch(50.0) # Dung sai 50mm cách xa 2 đầu jamb
+
+          all_transverse.any? do |tk|
+            next false if tk.equal?(t1) || tk.equal?(t2)
+
+            mid_k = Geom::Point3d.new((tk[:p1].x + tk[:p2].x) / 2.0, (tk[:p1].y + tk[:p2].y) / 2.0, 0)
+
+            # Phải nằm trên cùng tuyến tường (khoảng cách vuông góc tới trục nối 2 jamb <= 150mm)
+            perp_d = Geometry.distance_point_to_line_2d(mid_k, mid1, span_dir)
+            next false if perp_d > Geometry.mm_to_inch(150.0)
+
+            # Chiếu lên vector span giữa 2 jamb
+            proj = (mid_k - mid1).dot(span_dir)
+            proj > margin && proj < (span_len - margin)
+          end
+        end
+
         # Match 2 wall edges: Strategy A (Transverse Jambs) or Strategy B (Longitudinal Overlaps)
         def match_wall_edges(op, nearby_segments, cand_dir)
           return nil if nearby_segments.empty?
@@ -313,6 +361,7 @@ module NAUQ
           if transverse.size >= 2
             best_pair = nil
             best_score = Float::INFINITY
+            pos = op[:position]
 
             transverse.each_with_index do |t1, i|
               (i + 1...transverse.size).each do |j|
@@ -325,17 +374,33 @@ module NAUQ
                 mid2 = Geom::Point3d.new((t2[:p1].x + t2[:p2].x) / 2.0, (t2[:p1].y + t2[:p2].y) / 2.0, 0)
                 span = mid1.distance(mid2)
 
-                if span >= min_span_in && span <= max_span_in
-                  exp_w_in = Geometry.mm_to_inch(op[:width_mm] || 1000.0)
-                  diff = (span - exp_w_in).abs
-                  if diff < best_score
-                    best_score = diff
-                    best_pair = {
-                      edge_left: [t1[:p1], t1[:p2]],
-                      edge_right: [t2[:p1], t2[:p2]],
-                      strategy: :transverse_jambs
-                    }
-                  end
+                next if span < min_span_in || span > max_span_in
+
+                # KHÓA CHẶN 1: Loại bỏ tuyệt đối nếu có một jamb trung gian nằm giữa t1 và t2
+                # (ngăn chặn việc cửa đi nuốt mấu tường và đâm xuyên sang mép cửa sổ bên cạnh)
+                next if has_intermediate_jamb?(t1, t2, transverse)
+
+                pair_mid = Geom::Point3d.new((mid1.x + mid2.x) / 2.0, (mid1.y + mid2.y) / 2.0, 0)
+
+                # KHÓA CHẶN 2: Nếu có tọa độ vị trí opening, tâm của cặp jamb không được cách quá xa vị trí đó
+                if pos
+                  dist_to_center = pos.distance(pair_mid)
+                  max_allowed = (span / 2.0) + Geometry.mm_to_inch(300.0)
+                  next if dist_to_center > max_allowed
+                end
+
+                exp_w_in = Geometry.mm_to_inch(op[:width_mm] || 1000.0)
+                diff = (span - exp_w_in).abs
+                dist_penalty = pos ? pos.distance(pair_mid) * 0.5 : 0.0
+                score = diff + dist_penalty
+
+                if score < best_score
+                  best_score = score
+                  best_pair = {
+                    edge_left: [t1[:p1], t1[:p2]],
+                    edge_right: [t2[:p1], t2[:p2]],
+                    strategy: :transverse_jambs
+                  }
                 end
               end
             end
@@ -350,29 +415,31 @@ module NAUQ
               dot_l.abs > 0.94
             end
 
-            best_outline_pair = outlines.min_by do |l1, l2|
+            valid_outlines = outlines.select do |l1, l2|
+              d = Geometry.distance_point_to_line_2d(l1[:p1], l2[:p1], l2[:dir])
+              d >= min_thick_in && d <= max_thick_in
+            end
+
+            best_outline_pair = valid_outlines.min_by do |l1, l2|
               # Perpendicular distance between lines
               Geometry.distance_point_to_line_2d(l1[:p1], l2[:p1], l2[:dir])
             end
 
             if best_outline_pair
               l1, l2 = best_outline_pair
-              thick_in = Geometry.distance_point_to_line_2d(l1[:p1], l2[:p1], l2[:dir])
-              if thick_in >= min_thick_in && thick_in <= max_thick_in
-                # Project candidate endpoints onto outlines to form edges
-                pos = op[:position] || l1[:p1]
-                half_w_in = Geometry.mm_to_inch((op[:width_mm] || 1000.0) / 2.0)
-                p_start_l1 = Geometry.project_point_to_line_2d(pos.offset(cand_dir, -half_w_in), l1[:p1], l1[:dir])
-                p_start_l2 = Geometry.project_point_to_line_2d(p_start_l1, l2[:p1], l2[:dir])
-                p_end_l1 = Geometry.project_point_to_line_2d(pos.offset(cand_dir, half_w_in), l1[:p1], l1[:dir])
-                p_end_l2 = Geometry.project_point_to_line_2d(p_end_l1, l2[:p1], l2[:dir])
+              # Project candidate endpoints onto outlines to form edges
+              pos = op[:position] || l1[:p1]
+              half_w_in = Geometry.mm_to_inch((op[:width_mm] || 1000.0) / 2.0)
+              p_start_l1 = Geometry.project_point_to_line_2d(pos.offset(cand_dir, -half_w_in), l1[:p1], l1[:dir])
+              p_start_l2 = Geometry.project_point_to_line_2d(p_start_l1, l2[:p1], l2[:dir])
+              p_end_l1 = Geometry.project_point_to_line_2d(pos.offset(cand_dir, half_w_in), l1[:p1], l1[:dir])
+              p_end_l2 = Geometry.project_point_to_line_2d(p_end_l1, l2[:p1], l2[:dir])
 
-                return {
-                  edge_left: [p_start_l1, p_start_l2],
-                  edge_right: [p_end_l1, p_end_l2],
-                  strategy: :outline_overlap
-                }
-              end
+              return {
+                edge_left: [p_start_l1, p_start_l2],
+                edge_right: [p_end_l1, p_end_l2],
+                strategy: :outline_overlap
+              }
             end
           end
 

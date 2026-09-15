@@ -38,7 +38,7 @@ module NAUQ
 
           target_layer_lower = layer_name.to_s.strip.downcase
           segments = []
-          initial_transform = cad_group.respond_to?(:transformation) ? cad_group.transformation : Geom::Transformation.new
+          initial_transform = Geometry.full_world_transform(cad_group)
           entities = cad_group.is_a?(Sketchup::ComponentInstance) ? cad_group.definition.entities : cad_group.entities
 
           scan_entities_with_transform(entities, target_layer_lower, initial_transform, segments, nil)
@@ -108,10 +108,14 @@ module NAUQ
           door_layer = (Config.get(:door_layer) || '0-cua').to_s.strip.downcase
           win_layer = (Config.get(:window_layer) || 'nho').to_s.strip.downcase
           door_block = (Config.get(:door_block) || 'cua di').to_s.strip.downcase
+          win_block = (Config.get(:window_block) || 'cua so').to_s.strip.downcase
 
+          return true if defined?(BlockParser) && BlockParser.is_door_name?(def_name)
+          return true if defined?(BlockParser) && BlockParser.is_window_keyword?(def_name)
           return true if door_layer != '' && (entity_layer == door_layer || entity_layer.include?(door_layer))
           return true if win_layer != '' && (entity_layer == win_layer || entity_layer.include?(win_layer))
           return true if door_block != '' && (def_name == door_block || def_name.include?(door_block))
+          return true if win_block != '' && (def_name == win_block || def_name.include?(win_block))
 
           false
         end

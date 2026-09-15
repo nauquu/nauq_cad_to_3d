@@ -14,12 +14,12 @@ module NAUQ
           end
 
           @dialog = UI::HtmlDialog.new(
-            dialog_title: 'Settings & Presets',
+            dialog_title: 'Cài Đặt & Cấu Hình Mẫu',
             preferences_key: 'NAUQ_CAD_TO_3D_Settings_Dialog',
             scrollable: true,
             resizable: true,
-            width: 640,
-            height: 400,
+            width: 650,
+            height: 510,
             left: 200,
             top: 150,
             style: UI::HtmlDialog::STYLE_DIALOG
@@ -135,7 +135,7 @@ module NAUQ
                   background-color: var(--bg-color);
                   color: var(--text-main);
                   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
-                  padding: 14px;
+                  padding: 12px 14px;
                   font-size: 12px;
                   line-height: 1.4;
                 }
@@ -174,6 +174,8 @@ module NAUQ
                   font-size: 14px;
                   font-weight: 700;
                   color: var(--text-main);
+                  text-transform: uppercase;
+                  letter-spacing: 0.3px;
                 }
 
                 .header p {
@@ -182,70 +184,66 @@ module NAUQ
                   margin-top: 1px;
                 }
 
-                .toast {
-                  display: none;
-                  background-color: #10b981;
-                  color: white;
-                  font-size: 11px;
-                  font-weight: 600;
-                  text-align: center;
-                  padding: 5px 10px;
-                  border-radius: 4px;
-                  margin-bottom: 8px;
-                  animation: fadeIn 0.2s ease-in-out;
-                }
-
-                @keyframes fadeIn {
-                  from { opacity: 0; transform: translateY(-4px); }
-                  to { opacity: 1; transform: translateY(0); }
-                }
-
                 /* Preset Quick-Selector Bar */
                 .preset-card {
                   background: #f0fdf4;
                   border: 1px solid #bbf7d0;
                   border-radius: 6px;
-                  padding: 7px 10px;
+                  padding: 6px 12px;
                   margin-bottom: 10px;
                   display: flex;
                   align-items: center;
                   justify-content: space-between;
+                  gap: 10px;
+                }
+
+                .preset-group {
+                  display: flex;
+                  align-items: center;
                   gap: 8px;
-                  flex-wrap: wrap;
                 }
 
                 .preset-label {
-                  display: flex;
-                  align-items: center;
-                  gap: 5px;
                   font-size: 11px;
                   font-weight: 700;
                   color: #166534;
+                  white-space: nowrap;
                 }
 
-                .preset-controls {
-                  display: flex;
-                  align-items: center;
-                  gap: 6px;
-                  flex: 1;
-                  justify-content: flex-end;
-                  min-width: 260px;
-                }
-
-                .preset-controls select {
+                .preset-group select {
                   background: #ffffff;
                   border: 1px solid #86efac;
                   color: #0f172a;
                   font-weight: 600;
-                  padding: 4px 6px;
+                  padding: 4px 8px;
                   border-radius: 4px;
                   font-size: 11px;
-                  flex: 1;
-                  max-width: 250px;
+                  min-width: 160px;
                   outline: none;
                 }
 
-                .preset-controls select:focus {
+                .preset-group select:focus {
+                  border-color: #16a34a;
+                }
+
+                .preset-actions {
+                  display: flex;
+                  align-items: center;
+                  gap: 6px;
+                }
+
+                .preset-actions input {
+                  border: 1px solid #86efac;
+                  padding: 4px 8px;
+                  font-size: 11px;
+                  border-radius: 4px;
+                  outline: none;
+                  background: #ffffff;
+                  color: #0f172a;
+                  width: 140px;
+                }
+
+                .preset-actions input:focus {
                   border-color: #16a34a;
                 }
 
@@ -253,12 +251,13 @@ module NAUQ
                   background: #16a34a;
                   color: #ffffff;
                   border: none;
-                  padding: 4px 8px;
+                  padding: 4px 10px;
                   font-size: 11px;
                   font-weight: 600;
                   border-radius: 4px;
                   cursor: pointer;
                   white-space: nowrap;
+                  transition: background 0.15s ease;
                 }
 
                 .btn-preset-save:hover {
@@ -269,7 +268,7 @@ module NAUQ
                   background: #ef4444;
                   color: #ffffff;
                   border: none;
-                  padding: 4px 8px;
+                  padding: 4px 10px;
                   font-size: 11px;
                   font-weight: 600;
                   border-radius: 4px;
@@ -303,7 +302,10 @@ module NAUQ
                   background: var(--card-bg);
                   border: 1px solid var(--border-color);
                   border-radius: 6px;
-                  padding: 8px 10px;
+                  padding: 10px 12px;
+                  display: flex;
+                  flex-direction: column;
+                  justify-content: flex-start;
                 }
 
                 .section-title {
@@ -312,21 +314,21 @@ module NAUQ
                   color: var(--text-main);
                   text-transform: uppercase;
                   letter-spacing: 0.4px;
-                  margin-bottom: 6px;
-                  padding-bottom: 3px;
+                  margin-bottom: 8px;
+                  padding-bottom: 4px;
                   border-bottom: 1px solid #f1f5f9;
                 }
 
                 .form-grid {
                   display: grid;
                   grid-template-columns: 1fr 1fr;
-                  gap: 6px 8px;
+                  gap: 8px;
                 }
 
                 .form-group {
                   display: flex;
                   flex-direction: column;
-                  gap: 2px;
+                  gap: 3px;
                 }
 
                 .form-group.full {
@@ -344,8 +346,8 @@ module NAUQ
                   border: 1px solid var(--border-color);
                   color: var(--text-main);
                   border-radius: 4px;
-                  padding: 4px 7px;
-                  font-size: 11px;
+                  padding: 5px 8px;
+                  font-size: 11.5px;
                   outline: none;
                 }
 
@@ -353,18 +355,38 @@ module NAUQ
                   border-color: var(--primary-color);
                 }
 
+                input:disabled {
+                  background: #f1f5f9 !important;
+                  color: #94a3b8 !important;
+                  opacity: 0.6;
+                  cursor: not-allowed;
+                }
+
+                .checkbox-row {
+                  display: flex;
+                  align-items: center;
+                  gap: 6px;
+                  margin-bottom: 4px;
+                }
+
+                .checkbox-row input {
+                  width: 14px;
+                  height: 14px;
+                  cursor: pointer;
+                }
+
                 .actions {
                   display: flex;
                   justify-content: flex-end;
                   gap: 8px;
-                  margin-top: 12px;
+                  margin-top: 10px;
                 }
 
                 button {
-                  padding: 5px 12px;
+                  padding: 6px 14px;
                   border-radius: 4px;
                   border: 1px solid transparent;
-                  font-size: 11px;
+                  font-size: 11.5px;
                   font-weight: 600;
                   cursor: pointer;
                 }
@@ -420,8 +442,8 @@ module NAUQ
             <body>
               <div class="header">
                 <div>
-                  <h2>Settings &amp; Presets</h2>
-                  <p>Cấu hình thông số layer CAD, dung sai và kích thước mặc định</p>
+                  <h2>CÀI ĐẶT &amp; PRESETS</h2>
+                  <p>Cấu hình thông số layer CAD, dung sai dựng hình và kích thước mặc định</p>
                 </div>
               </div>
 
@@ -429,12 +451,14 @@ module NAUQ
 
               <!-- Quick Presets Bar -->
               <div class="preset-card">
-                <div style="display: flex; gap: 6px; width: 100%; align-items: center; flex-wrap: wrap;">
-                  <div class="preset-label" style="font-weight: 700; color: #166534;">Cấu hình:</div>
-                  <select id="presetSelect" onchange="onPresetChange(this.value)" style="flex: 2; min-width: 140px; border: 1px solid #86efac; padding: 4px 6px; border-radius: 4px; font-size: 11px;">
+                <div class="preset-group">
+                  <span class="preset-label">Cấu hình mẫu:</span>
+                  <select id="presetSelect" onchange="onPresetChange(this.value)">
                     <!-- Populated dynamically -->
                   </select>
-                  <input type="text" id="presetNameInput" placeholder="Đặt tên cấu hình..." style="flex: 2; min-width: 130px; border: 1px solid #86efac; padding: 4px 6px; font-size: 11px; border-radius: 4px; outline: none; background: #ffffff; color: #0f172a;" />
+                </div>
+                <div class="preset-actions">
+                  <input type="text" id="presetNameInput" placeholder="Đặt tên cấu hình..." />
                   <button type="button" class="btn-preset-save" onclick="saveCurrentPreset()" title="Lưu thông số ở bảng dưới thành cấu hình này">Lưu Preset</button>
                   <button type="button" class="btn-preset-del" id="btnDeletePreset" onclick="deleteCurrentPreset()" title="Xóa cấu hình đang chọn">Xóa Preset</button>
                 </div>
@@ -442,78 +466,80 @@ module NAUQ
 
               <form id="settingsForm">
                 <div class="sections-grid">
-                  <!-- Cot trai: Tuong & Cua so -->
-                  <div style="display: flex; flex-direction: column; gap: 10px;">
-                    <!-- Tuong Section -->
-                    <div class="section">
-                      <div class="section-title">Tường (Wall)</div>
-                      <div class="form-grid">
-                        <div class="form-group">
-                          <label>Layer CAD</label>
-                          <input type="text" id="wall_layer" name="wall_layer" required>
-                        </div>
-                        <div class="form-group">
-                          <label>Dung sai (mm)</label>
-                          <input type="number" id="wall_tolerance" name="wall_tolerance" step="1" required>
-                        </div>
-                        <div class="form-group">
-                          <label>Chiều cao dầm (mm)</label>
-                          <input type="number" id="beam_depth" name="beam_depth" step="10" value="400">
-                        </div>
-                        <div class="form-group" style="justify-content: flex-end; padding-bottom: 2px;">
-                          <label style="display: flex; align-items: center; gap: 6px; cursor: pointer; color: var(--text-main); font-weight: 500;">
-                            <input type="checkbox" id="deduct_beam" name="deduct_beam" style="width: 14px; height: 14px; cursor: pointer;">
-                            Trừ dầm sàn &amp; Tạo sàn trên
-                          </label>
-                        </div>
+                  <!-- Row 1 Left: Cửa đi (Door) -->
+                  <div class="section">
+                    <div class="section-title">Cửa Đi (Door)</div>
+                    <div class="form-grid">
+                      <div class="form-group">
+                        <label>Layer CAD</label>
+                        <input type="text" id="door_layer" name="door_layer" required>
                       </div>
-                    </div>
-
-                    <!-- Cua so Section -->
-                    <div class="section">
-                      <div class="section-title">Cửa sổ (Window)</div>
-                      <div class="form-grid">
-                        <div class="form-group full">
-                          <label>Layer CAD</label>
-                          <input type="text" id="window_layer" name="window_layer" required>
+                      <div class="form-group">
+                        <label>Block CAD</label>
+                        <input type="text" id="door_block" name="door_block">
+                      </div>
+                      <div class="form-group full" style="margin-top: 4px;">
+                        <div class="checkbox-row" style="margin-bottom: 0;">
+                          <input type="checkbox" id="door_is_dynamic" name="door_is_dynamic" onchange="toggleDynamicBlock('door')">
+                          <label for="door_is_dynamic" style="color: var(--text-main); cursor: pointer; font-weight: 600;">Block động</label>
+                          <span style="font-size: 10px; color: var(--text-muted); margin-left: 4px;">(Nhận diện qua hình học)</span>
                         </div>
                       </div>
                     </div>
                   </div>
 
-                  <!-- Cot phai: Cua di & Global -->
-                  <div style="display: flex; flex-direction: column; gap: 10px;">
-                    <!-- Cua di Section -->
-                    <div class="section">
-                      <div class="section-title">Cửa đi (Door)</div>
-                      <div class="form-grid">
-                        <div class="form-group">
-                          <label>Layer CAD</label>
-                          <input type="text" id="door_layer" name="door_layer" required>
-                        </div>
-                        <div class="form-group">
-                          <label>Block CAD</label>
-                          <input type="text" id="door_block" name="door_block" required>
+                  <!-- Row 1 Right: Cửa sổ (Window) -->
+                  <div class="section">
+                    <div class="section-title">Cửa Sổ (Window)</div>
+                    <div class="form-grid">
+                      <div class="form-group">
+                        <label>Layer CAD</label>
+                        <input type="text" id="window_layer" name="window_layer" required>
+                      </div>
+                      <div class="form-group">
+                        <label>Block CAD</label>
+                        <input type="text" id="window_block" name="window_block">
+                      </div>
+                      <div class="form-group full" style="margin-top: 4px;">
+                        <div class="checkbox-row" style="margin-bottom: 0;">
+                          <input type="checkbox" id="window_is_dynamic" name="window_is_dynamic" onchange="toggleDynamicBlock('window')">
+                          <label for="window_is_dynamic" style="color: var(--text-main); cursor: pointer; font-weight: 600;">Block động</label>
+                          <span style="font-size: 10px; color: var(--text-muted); margin-left: 4px;">(Nhận diện qua hình học)</span>
                         </div>
                       </div>
                     </div>
+                  </div>
 
-                    <!-- Global Section -->
-                    <div class="section">
-                      <div class="section-title">Khung &amp; Ô kính (Global)</div>
-                      <div class="form-grid">
-                        <div class="form-group full">
-                          <label>Khung bao (mm)</label>
-                          <input type="number" id="frame_size" name="frame_size" step="1" required>
-                        </div>
-                        <div class="form-group full">
-                          <label>Phân nhóm Cửa 3D</label>
-                          <select id="door_grouping" name="door_grouping" required>
-                            <option value="2">Cửa đi và cửa sổ 2 group riêng (Mặc định)</option>
-                            <option value="1">Cửa đi và cửa sổ chung 1 group</option>
-                            <option value="0">Không tạo group cửa (đặt tự do)</option>
-                          </select>
-                        </div>
+                  <!-- Row 2 Left: Tường (Wall) -->
+                  <div class="section">
+                    <div class="section-title">Tường (Wall)</div>
+                    <div class="form-grid">
+                      <div class="form-group">
+                        <label>Layer CAD</label>
+                        <input type="text" id="wall_layer" name="wall_layer" required>
+                      </div>
+                      <div class="form-group">
+                        <label>Dung sai (mm)</label>
+                        <input type="number" id="wall_tolerance" name="wall_tolerance" step="1" required>
+                      </div>
+                    </div>
+                  </div>
+
+                  <!-- Row 2 Right: Khung bao & Phân nhóm (Global) -->
+                  <div class="section">
+                    <div class="section-title">Khung Bao &amp; Phân Nhóm (Global)</div>
+                    <div class="form-grid">
+                      <div class="form-group">
+                        <label>Khung bao (mm)</label>
+                        <input type="number" id="frame_size" name="frame_size" step="1" required>
+                      </div>
+                      <div class="form-group">
+                        <label>Phân nhóm 3D</label>
+                        <select id="door_grouping" name="door_grouping" required>
+                          <option value="2">2 group riêng (Mặc định)</option>
+                          <option value="1">Chung 1 group</option>
+                          <option value="0">Không tạo group</option>
+                        </select>
                       </div>
                     </div>
                   </div>
@@ -634,6 +660,21 @@ module NAUQ
                   renderPresetOptions();
                 }
 
+                function toggleDynamicBlock(prefix) {
+                  const chk = document.getElementById(prefix + '_is_dynamic');
+                  const input = document.getElementById(prefix + '_block');
+                  if (!chk || !input) return;
+
+                  if (chk.checked) {
+                    input.disabled = true;
+                    input.required = false;
+                    input.placeholder = '(Tự nhận diện)';
+                  } else {
+                    input.disabled = false;
+                    input.placeholder = 'Tên block CAD';
+                  }
+                }
+
                 function populateForm(data) {
                   for (const key in data) {
                     const el = document.getElementById(key);
@@ -645,6 +686,8 @@ module NAUQ
                       }
                     }
                   }
+                  toggleDynamicBlock('window');
+                  toggleDynamicBlock('door');
                 }
 
                 function getFormData() {
@@ -656,10 +699,19 @@ module NAUQ
                     data[key] = (isNaN(num) || value.trim() === '') ? value : num;
                   });
 
-                  const deductBeamEl = document.getElementById('deduct_beam');
-                  if (deductBeamEl) {
-                    data['deduct_beam'] = deductBeamEl.checked;
-                  }
+                  // Explicitly capture all checkboxes as booleans
+                  form.querySelectorAll('input[type="checkbox"]').forEach((cb) => {
+                    data[cb.name || cb.id] = cb.checked;
+                  });
+
+                  // Preserve block text if input was disabled
+                  ['window_block', 'door_block'].forEach((id) => {
+                    const el = document.getElementById(id);
+                    if (el && (data[id] === undefined || data[id] === '')) {
+                      data[id] = el.value || '';
+                    }
+                  });
+
                   return data;
                 }
 

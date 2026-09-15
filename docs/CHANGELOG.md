@@ -4,6 +4,34 @@ Toàn bộ lịch sử các phiên bản, các đợt tái cấu trúc kiến tr
 
 ---
 
+## [v1.9.12] - 2026-09-15 (Fix Dimension Precision, CAD Block Anti-Hardcode & UI Synchronization)
+
+### Added
+- **Accurate Fix Dimension Measurement (`ResizeToolDialog`):** Thêm hàm `read_fix_dimension` hỗ trợ đọc đa nguồn thuộc tính và đo đạc trực tiếp từ 3D bounding box của các sub-group hình học kính fix (`GLASS_FIX_TOP`, `GLASS_FIX_BOTTOM`, `GLASS_FIX_LEFT`, `GLASS_FIX_RIGHT`, `TRANSOM`).
+- **Proportional 2D SVG Fix Preview (`ResizeToolDialog`):** Khung preview SVG 2D tự động co giãn trực quan các ô fix tỉ lệ theo số mm thực tế người dùng nhập vào.
+- **Dynamic Block Support in UI (`BuildDialog`, `SettingsDialog`):** Bổ sung tùy chọn checkbox và chú thích hướng dẫn cho block cửa động (không bắt buộc nhập tên block khi block là động).
+
+### Changed
+- **Anti-Hardcode Refactoring (`BlockParser`):**
+  - Xóa bỏ toàn bộ các chuỗi hardcode tên layer (`'0-cua'`, `'nho'`), chuyển sang tôn trọng 100% layer do người dùng chọn ở Build Dialog / Settings.
+  - Chuẩn hóa so khớp layer (`layer_matches?`) theo tên chính xác thay vì `.include?` hai chiều lỏng lẻo.
+  - Xác định trùng layer (`is_shared_layer`) chuẩn xác khi tên layer cửa đi và cửa sổ thực sự trùng khớp.
+  - Nhận diện block cửa động trên layer trùng bằng sự hiện diện của nét cung mở cánh (Arc) tổng quát, không cố định góc 90 độ.
+- **Unit Conversion Hardening (`ResizeToolDialog`):** Cải tiến `read_dimension` và `read_fix_dimension` tự động chuyển đổi an toàn giữa SketchUp `Length`, `Float inch`, và `Float mm`.
+- **UI Balancing & Design System Compliance (`BuildDialog`, `SettingsDialog`):** Đồng bộ hóa padding, input/button styling, tuân thủ nghiêm ngặt quy chuẩn UI phẳng, không emoji/icon trang trí bừa bãi, không dùng gradient màu mè.
+
+### Fixed
+- **Resize Dialog Fix Size Reset Bug (`ResizeToolDialog`, `DoorGenerator`, `FrameBuilder`):** Sửa lỗi khi chọn cửa trong Resize Dialog bị reset kích thước ô fix về 350mm do `FrameBuilder` bỏ qua `opts[:fix_module_height]` và `read_dimension` không nhận diện được đơn vị inch của các thuộc tính fix.
+- **2D CAD Visibility Loss (`DWGReader`):** Khắc phục lỗi ẩn/mất hình học 2D CAD sau khi sinh mô hình 3D.
+- **Camera Auto-Zoom Glitch (`DWGReader`, `PlacementTool`):** Bỏ thao tác tự động zoom extents (Shift+Z) ngoài ý muốn khi import file 2D.
+- **Adjacent Door/Window Wall Collision (`OpeningDetector`, `OpeningNormalizer`):** Sửa lỗi xung đột ranh giới khoét tường khi cửa đi và cửa sổ đặt sát cạnh nhau trên cùng một bức tường.
+
+### Removed
+- **Hardcoded Heuristics Removed:** Xóa luật giả định bậu cửa thấp `< 200mm` tự động ép có ô fix dưới trong `ResizeToolDialog`.
+- **Fuzzy Layer Bypasses Removed:** Xóa bỏ đoạn mã tự động nhận diện cửa qua từ khóa lỏng lẻo `.include?('cua')` / `.include?('door')` khiến đồ nội thất có nét cong (lavabo, bồn tắm) trên các layer khác bị nhận nhầm thành cửa.
+
+---
+
 ## [v1.9.11] - 2026-09-08 (RuboCop-SketchUp Full Suggestion Audit)
 
 ### Changed

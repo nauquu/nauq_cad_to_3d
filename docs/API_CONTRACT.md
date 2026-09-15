@@ -97,3 +97,13 @@ Tài liệu định nghĩa chi tiết các hàm, tham số đầu vào, kiểu d
 - `OpeningDoorTool#activate` / `deactivate`
 - `OpeningDoorTool#detect_opening_from_context(context)` $\rightarrow$ `Hash | nil` (Opening alignment & coordinate definition)
 
+### 2.11 `BlockParser` (CAD Block Collection & Recognition)
+- `collect_blocks(cad_group, block_name = nil, layer_name = nil)` $\rightarrow$ `Array<Hash>`
+- `collect_window_blocks(cad_group, block_name = nil, layer_name = nil)` $\rightarrow$ `Array<Hash>`
+
+### 2.12 `ResizeToolDialog` (Door/Window Inspection & Resizing)
+- `read_dimension(entity, key)` $\rightarrow$ `Float | nil` (Đọc kích thước với cơ chế giải mã đa đơn vị mm/inch)
+- `read_fix_dimension(entity, direction)` $\rightarrow$ `Float` (Đọc kích thước ô fix từ attributes hoặc đo 3D bounding box)
+- `read_has_fix(entity, direction)` $\rightarrow$ `Boolean` (Xác định ô fix từ attributes hoặc kiểm tra hình học sub-group)
+- `execute_resize(data_hash)` $\rightarrow$ `void` (Cập nhật kích thước cửa và điều chỉnh lỗ mở tường tương ứng)
+

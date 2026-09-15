@@ -93,7 +93,7 @@ module NAUQ
             leaf_height,
             frame_mat,
             glass_mat,
-            'TT_DOOR_LEAF'
+            'Nauq_DOOR_LEAF'
           )
 
           # 7. Create LEAF Instances (each instance contains frame + its own embedded glass)
@@ -132,6 +132,10 @@ module NAUQ
             has_fix_bottom: layout[:has_fix_bottom],
             has_fix_left: layout[:has_fix_left],
             has_fix_right: layout[:has_fix_right],
+            fix_top_height: layout[:top_fix] ? layout[:top_fix][:h] : 0,
+            fix_bottom_height: layout[:bot_fix] ? layout[:bot_fix][:h] : 0,
+            fix_left_width: layout[:left_fix] ? layout[:left_fix][:w] : 0,
+            fix_right_width: layout[:right_fix] ? layout[:right_fix][:w] : 0,
             definition: definition
           )
 
@@ -156,27 +160,50 @@ module NAUQ
         end
 
         def add_attributes(door, data)
-          door.set_attribute('TT_Door', 'test_version', 'v20')
-          door.set_attribute('TT_Door', 'door_name', data[:door_name])
-          door.set_attribute('TT_Door', 'panel_count', data[:panel_count])
-          door.set_attribute('TT_Door', 'width', data[:door_width].to_f)
-          door.set_attribute('TT_Door', 'height', data[:door_height].to_f)
-          door.set_attribute('TT_Door', 'active_width', data[:active_width].to_f)
-          door.set_attribute('TT_Door', 'leaf_width', data[:leaf_width].to_f)
-          door.set_attribute('TT_Door', 'leaf_height', data[:leaf_height].to_f)
-          door.set_attribute('TT_Door', 'has_fix_top', data[:has_fix_top])
-          door.set_attribute('TT_Door', 'leaf_component_definition', data[:definition].name)
+          door.set_attribute('Nauq_Door', 'test_version', 'v20')
+          door.set_attribute('Nauq_Door', 'door_name', data[:door_name])
+          door.set_attribute('Nauq_Door', 'panel_count', data[:panel_count])
+          door.set_attribute('Nauq_Door', 'width', data[:door_width].to_f)
+          door.set_attribute('Nauq_Door', 'height', data[:door_height].to_f)
+          door.set_attribute('Nauq_Door', 'active_width', data[:active_width].to_f)
+          door.set_attribute('Nauq_Door', 'leaf_width', data[:leaf_width].to_f)
+          door.set_attribute('Nauq_Door', 'leaf_height', data[:leaf_height].to_f)
+          door.set_attribute('Nauq_Door', 'has_fix_top', data[:has_fix_top])
+          door.set_attribute('Nauq_Door', 'has_fix_bottom', data[:has_fix_bottom])
+          door.set_attribute('Nauq_Door', 'has_fix_left', data[:has_fix_left])
+          door.set_attribute('Nauq_Door', 'has_fix_right', data[:has_fix_right])
+          door.set_attribute('Nauq_Door', 'fix_top_height', data[:fix_top_height].to_mm) if data[:fix_top_height] && data[:has_fix_top]
+          door.set_attribute('Nauq_Door', 'fix_top_height_mm', data[:fix_top_height].to_mm) if data[:fix_top_height] && data[:has_fix_top]
+          door.set_attribute('Nauq_Door', 'leaf_component_definition', data[:definition].name)
 
           if defined?(Attribute)
-            Attribute.tag(
-              door,
-              'door',
+            tag_data = {
               name: data[:door_name],
               width_mm: data[:door_width].to_mm,
               height_mm: data[:door_height].to_mm,
               panel_count: data[:panel_count],
-              has_fix_top: data[:has_fix_top]
-            )
+              has_fix_top: data[:has_fix_top],
+              has_fix_bottom: data[:has_fix_bottom],
+              has_fix_left: data[:has_fix_left],
+              has_fix_right: data[:has_fix_right]
+            }
+            if data[:has_fix_top] && data[:fix_top_height] && data[:fix_top_height] > 0
+              tag_data[:fix_top_height] = data[:fix_top_height].to_mm
+              tag_data[:fix_top_height_mm] = data[:fix_top_height].to_mm
+            end
+            if data[:has_fix_bottom] && data[:fix_bottom_height] && data[:fix_bottom_height] > 0
+              tag_data[:fix_bottom_height] = data[:fix_bottom_height].to_mm
+              tag_data[:fix_bottom_height_mm] = data[:fix_bottom_height].to_mm
+            end
+            if data[:has_fix_left] && data[:fix_left_width] && data[:fix_left_width] > 0
+              tag_data[:fix_left_width] = data[:fix_left_width].to_mm
+              tag_data[:fix_left_width_mm] = data[:fix_left_width].to_mm
+            end
+            if data[:has_fix_right] && data[:fix_right_width] && data[:fix_right_width] > 0
+              tag_data[:fix_right_width] = data[:fix_right_width].to_mm
+              tag_data[:fix_right_width_mm] = data[:fix_right_width].to_mm
+            end
+            Attribute.tag(door, 'door', tag_data)
           end
         end
       end

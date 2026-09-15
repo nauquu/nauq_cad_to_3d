@@ -106,6 +106,7 @@ module NAUQ
               height: h_mm.mm,
               panel_count: leaf_count,
               has_fix_top: has_transom,
+              fix_top_height: glass_h_mm.mm,
               fix_module_height: glass_h_mm.mm
             )
 
@@ -121,7 +122,17 @@ module NAUQ
             Attribute.set(door_assembly, 'width', w_mm, 'NAUQ_DOOR')
             Attribute.set(door_assembly, 'height', h_mm, 'NAUQ_DOOR')
             Attribute.set(door_assembly, 'leaf_count', leaf_count, 'NAUQ_DOOR')
-            Attribute.tag(door_assembly, 'door', id: op[:id], width: w_mm, leaf_count: leaf_count, source_cad_id: cad_id)
+            Attribute.tag(
+              door_assembly,
+              'door',
+              id: op[:id],
+              width: w_mm,
+              height: h_mm,
+              leaf_count: leaf_count,
+              has_fix_top: has_transom,
+              fix_top_height_mm: glass_h_mm,
+              source_cad_id: cad_id
+            )
 
             built_count += 1
             rescue StandardError => e

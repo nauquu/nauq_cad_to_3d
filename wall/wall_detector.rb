@@ -15,7 +15,7 @@ module NAUQ
 
           target_layer_lower = layer_name.to_s.strip.downcase
           segments = []
-          initial_transform = cad_group.respond_to?(:transformation) ? cad_group.transformation : Geom::Transformation.new
+          initial_transform = Geometry.full_world_transform(cad_group)
           entities = cad_group.is_a?(Sketchup::ComponentInstance) ? cad_group.definition.entities : cad_group.entities
 
           scan_entities_with_transform(entities, target_layer_lower, initial_transform, segments, nil)
