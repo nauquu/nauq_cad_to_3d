@@ -695,6 +695,7 @@ module NAUQ
             width: width_mm.round(1),
             height: height_mm.round(1),
             z_offset: read_z_offset(target, type).round(0),
+            corner_radius: (read_dimension(target, 'corner_radius') || 0.0).round(0),
             panel_count: panel_count,
             has_fix_top: has_fix_top,
             fix_top_height: read_fix_dimension(target, :top),
@@ -707,8 +708,10 @@ module NAUQ
             name: target.name || "Cửa #{type == 'door' ? 'đi' : 'sổ'}"
           }
 
+          cr_val = data[:corner_radius]
+          cr_msg = cr_val > 0 ? " (Bo góc R=#{cr_val})" : ''
           @dialog.execute_script("setPickedData(#{data.to_json});")
-          update_status("Đã chọn: #{data[:name]} (#{width_mm.round(0)} x #{height_mm.round(0)} mm)", 'info')
+          update_status("Đã chọn: #{data[:name]}#{cr_msg} (#{width_mm.round(0)} x #{height_mm.round(0)} mm)", 'info')
         end
 
         # When multiple targets are swept by drag box
@@ -731,6 +734,7 @@ module NAUQ
             width: width_mm.round(1),
             height: height_mm.round(1),
             z_offset: read_z_offset(first, type).round(0),
+            corner_radius: (read_dimension(first, 'corner_radius') || 0.0).round(0),
             panel_count: panel_count,
             has_fix_top: has_fix_top,
             fix_top_height: read_fix_dimension(first, :top),
@@ -763,10 +767,8 @@ module NAUQ
           new_width = data_hash['width'].to_f
           new_height = data_hash['height'].to_f
           new_z_offset = data_hash['z_offset'].to_f
-          type = data_hash['type'].to_s == 'window' ? :window : :door
-          panel_count = [data_hash['panel_count'].to_i, 1].max
-          anchor = (data_hash['anchor'] || @active_picker_tool&.anchor || 'center').to_s
-          new_z_offset = 0.0 if type == :door
+          anchor = data_hash['anchor'] || 'center'
+          panel_count = data_hash['panel_count'] ? data_hash['panel_count'].to_i : nil
 
           has_fix_top = data_hash['has_fix_top'] == true || data_hash['has_fix_top'] == 'true'
           fix_top_h = data_hash['fix_top_height'].to_f
@@ -812,12 +814,19 @@ module NAUQ
             targets.each do |target|
               next unless target && target.valid?
 
+              type = is_entity_window?(target) ? :window : :door
               parent_entities = target.parent ? target.parent.entities : model.active_entities
               old_transform = target.transformation
               old_center = target.bounds.center
               old_h = read_dimension(target, 'height') || new_height
               old_w = read_dimension(target, 'width') || new_width
               old_z_offset = read_z_offset(target, type)
+
+              target_panel_count = panel_count || read_panel_count(target, type)
+
+              old_cr = read_dimension(target, 'corner_radius') || 0.0
+              target_cr = (data_hash['corner_radius'] || old_cr).to_f
+              target_cr_len = target_cr > 0 ? target_cr.mm : 0.mm
 
               delta_w = (new_width - old_w).mm
               t_anchor_shift = case anchor
@@ -827,21 +836,36 @@ module NAUQ
               end
 
               if type == :door
+                door_fix_opts = fix_opts.merge(has_fix_bottom: false, fix_bottom_height: 0.mm, fix_bottom_height_mm: 0.0)
                 new_group = DoorGenerator.generate(
-                  fix_opts.merge(parent: parent_entities, name: "DOOR_RESIZED_#{panel_count}P", width: new_width.mm, height: new_height.mm, panel_count: panel_count)
+                  door_fix_opts.merge(
+                    parent: parent_entities,
+                    name: "DOOR_RESIZED_#{target_panel_count}P",
+                    width: new_width.mm,
+                    height: new_height.mm,
+                    panel_count: target_panel_count,
+                    corner_radius: target_cr_len
+                  )
                 )
                 new_group.transform!(old_transform * t_anchor_shift)
-                Attribute.tag(new_group, 'door', width: new_width, height: new_height, panel_count: panel_count, **fix_opts)
+                Attribute.tag(new_group, 'door', width: new_width, height: new_height, panel_count: target_panel_count, corner_radius: target_cr, **door_fix_opts)
                 new_targets << new_group
               else
                 win_assembly = WindowBuilder.generate(
-                  fix_opts.merge(parent: parent_entities, name: "WINDOW_RESIZED_#{panel_count}P", width: new_width.mm, height: new_height.mm, panel_count: panel_count)
+                  fix_opts.merge(
+                    parent: parent_entities,
+                    name: "WINDOW_RESIZED_#{target_panel_count}P",
+                    width: new_width.mm,
+                    height: new_height.mm,
+                    panel_count: target_panel_count,
+                    corner_radius: target_cr_len
+                  )
                 )
                 win_assembly.transform!(old_transform * t_anchor_shift)
                 if (new_z_offset - old_z_offset).abs > 1.0
                   win_assembly.transform!(Geom::Transformation.translation(Geom::Vector3d.new(0, 0, (new_z_offset - old_z_offset).mm)))
                 end
-                Attribute.tag(win_assembly, 'window', width: new_width, height: new_height, leaf_count: panel_count, z_offset: new_z_offset, **fix_opts)
+                Attribute.tag(win_assembly, 'window', width: new_width, height: new_height, leaf_count: target_panel_count, z_offset: new_z_offset, corner_radius: target_cr, **fix_opts)
                 new_targets << win_assembly
               end
 
@@ -932,6 +956,8 @@ module NAUQ
 
               new_w = detected[:width].mm
               new_h = detected[:height].mm
+              detected_cr_mm = (detected[:corner_radius] || 0.0).to_f
+              detected_cr_len = detected_cr_mm > 0 ? detected_cr_mm.mm : 0.mm
 
               if type == :door
                 new_group = DoorGenerator.generate(
@@ -940,7 +966,8 @@ module NAUQ
                     name: "DOOR_SYNC_#{panel_count}P",
                     width: new_w,
                     height: new_h,
-                    panel_count: panel_count
+                    panel_count: panel_count,
+                    corner_radius: detected_cr_len
                   )
                 )
                 rad = Math.atan2(detected[:dir].y, detected[:dir].x)
@@ -949,7 +976,7 @@ module NAUQ
                 t_pos = Geom::Transformation.translation(detected[:center])
                 new_group.transform!(t_pos * t_rot * t_shift)
 
-                Attribute.tag(new_group, 'door', width: detected[:width], height: detected[:height], panel_count: panel_count, **fix_opts)
+                Attribute.tag(new_group, 'door', width: detected[:width], height: detected[:height], panel_count: panel_count, corner_radius: detected_cr_mm, **fix_opts)
                 new_targets << new_group
               else
                 win_assembly = WindowBuilder.generate(
@@ -958,7 +985,8 @@ module NAUQ
                     name: "WINDOW_SYNC_#{panel_count}P",
                     width: new_w,
                     height: new_h,
-                    panel_count: panel_count
+                    panel_count: panel_count,
+                    corner_radius: detected_cr_len
                   )
                 )
                 rad = Math.atan2(detected[:dir].y, detected[:dir].x)
@@ -967,15 +995,23 @@ module NAUQ
                 t_pos = Geom::Transformation.translation(detected[:center])
                 win_assembly.transform!(t_pos * t_rot * t_shift)
 
-                Attribute.tag(win_assembly, 'window', width: detected[:width], height: detected[:height], leaf_count: panel_count, z_offset: detected[:z_offset], **fix_opts)
+                Attribute.tag(win_assembly, 'window', width: detected[:width], height: detected[:height], leaf_count: panel_count, z_offset: detected[:z_offset], corner_radius: detected_cr_mm, **fix_opts)
                 new_targets << win_assembly
               end
+
+              type_label = (type == :door ? 'Cửa đi' : 'Cửa sổ')
+              sync_name = if detected_cr_mm > 0
+                            "#{type_label} (Bo góc R=#{detected_cr_mm.round(0)}, #{detected[:width].round(0)}x#{detected[:height].round(0)})"
+                          else
+                            "#{type_label} (Đã khớp #{detected[:width].round(0)}x#{detected[:height].round(0)})"
+                          end
 
               last_data = {
                 type: type.to_s,
                 width: detected[:width].round(1),
                 height: detected[:height].round(1),
                 z_offset: detected[:z_offset].round(0),
+                corner_radius: detected_cr_mm.round(0),
                 panel_count: panel_count,
                 has_fix_top: has_fix_t,
                 fix_top_height: fix_t_h,
@@ -985,7 +1021,7 @@ module NAUQ
                 fix_left_width: fix_l_w,
                 has_fix_right: has_fix_r,
                 fix_right_width: fix_r_w,
-                name: (type == :door ? 'Cửa đi' : 'Cửa sổ') + " (Đã khớp #{detected[:width].round(0)}x#{detected[:height].round(0)})"
+                name: sync_name
               }
 
               target.erase! if target.valid?
@@ -1099,16 +1135,144 @@ module NAUQ
             z_offset_mm = [(z_bot - floor_z).to_mm.round(0), 0.0].max
             z_offset_mm = 0.0 if type == :door
 
+            corner_r_mm = detect_wall_opening_corner_radius(model, walls_g, mid_xy, u_dir, opening_w_inch, z_top, res_t)
+
             {
               width: opening_w_inch.to_mm.round(0),
               height: opening_h_inch.to_mm.round(0),
               z_offset: z_offset_mm,
+              corner_radius: corner_r_mm,
               center: Geom::Point3d.new(mid_xy.x, mid_xy.y, z_bot),
               dir: u_dir
             }
           ensure
             target.visible = was_visible if target && target.valid?
           end
+        end
+
+        # Dò tìm bán kính bo góc hoặc vòm tại đỉnh lanh-tô của lỗ mở tường
+        # @param model [Sketchup::Model]
+        # @param walls_g [Sketchup::Group, nil]
+        # @param mid_xy [Geom::Point3d]
+        # @param u_dir [Geom::Vector3d]
+        # @param opening_w_inch [Float]
+        # @param z_top [Float]
+        # @param res_t [Array, nil]
+        # @return [Float] bán kính bo góc tính bằng mm (0 nếu là cửa vuông)
+        def detect_wall_opening_corner_radius(model, walls_g, mid_xy, u_dir, opening_w_inch, z_top, res_t)
+          half_w = opening_w_inch / 2.0
+          best_r = 0.0
+
+          # 1. Direct inspection of entity hit by vertical raytest at lintel soffit
+          if res_t && res_t[1]
+            hit_ent = res_t[1].last
+            faces_to_check = []
+            if hit_ent.is_a?(Sketchup::Face) && hit_ent.valid?
+              faces_to_check << hit_ent
+              hit_ent.edges.each { |e| faces_to_check.concat(e.faces) }
+            elsif hit_ent.is_a?(Sketchup::Edge) && hit_ent.valid?
+              faces_to_check.concat(hit_ent.faces)
+              if hit_ent.curve && hit_ent.curve.is_a?(Sketchup::ArcCurve)
+                r = hit_ent.curve.radius
+                if r >= Geometry.mm_to_inch(10.0)
+                  return half_w.to_mm.round(0) if r >= half_w - Geometry.mm_to_inch(40.0)
+                  best_r = [best_r, r].max
+                end
+              end
+            end
+            faces_to_check.uniq.each do |f|
+              next unless f.valid?
+              f.edges.each do |e|
+                if e.curve && e.curve.is_a?(Sketchup::ArcCurve)
+                  r = e.curve.radius
+                  if r >= Geometry.mm_to_inch(10.0)
+                    if r >= half_w - Geometry.mm_to_inch(40.0)
+                      return half_w.to_mm.round(0)
+                    elsif r > best_r
+                      best_r = r
+                    end
+                  end
+                end
+              end
+            end
+            return best_r.to_mm.round(0) if best_r > 0
+          end
+
+          # 2. Container ArcCurve scan with proper transformations
+          scan_items = []
+          if walls_g && walls_g.valid?
+            w_ent = walls_g.respond_to?(:definition) ? walls_g.definition : walls_g
+            scan_items << [w_ent, walls_g.transformation]
+          end
+          if res_t && res_t[1]
+            hit_ent = res_t[1].last
+            if hit_ent && hit_ent.respond_to?(:parent) && hit_ent.parent.respond_to?(:entities)
+              tr_hit = Geom::Transformation.new
+              res_t[1].each { |ent| tr_hit *= ent.transformation if ent.respond_to?(:transformation) }
+              scan_items << [hit_ent.parent, tr_hit]
+            end
+          end
+
+          seen_arcs = []
+          scan_items.uniq { |parent_ent, _| parent_ent }.each do |parent_ent, tr|
+            parent_ent.entities.grep(Sketchup::Edge).each do |e|
+              next unless e.curve && e.curve.is_a?(Sketchup::ArcCurve)
+              arc = e.curve
+              next if seen_arcs.include?(arc)
+              seen_arcs << arc
+
+              r = arc.radius
+              next if r < Geometry.mm_to_inch(10.0)
+
+              c_pt = tr * arc.center
+              apex_z = c_pt.z + r
+              next if (apex_z - z_top).abs > Geometry.mm_to_inch(50.0)
+
+              dx = (c_pt.x - mid_xy.x) * u_dir.x + (c_pt.y - mid_xy.y) * u_dir.y
+              next if dx.abs > half_w + Geometry.mm_to_inch(40.0)
+
+              if r >= half_w - Geometry.mm_to_inch(40.0)
+                # Full Roman Arch
+                return (half_w).to_mm.round(0)
+              elsif r > best_r
+                best_r = r
+              end
+            end
+          end
+
+          if best_r > 0
+            return best_r.to_mm.round(0)
+          end
+
+          # 3. Failsafe: Vertical raytest near left and right edges to detect non-ArcCurve curved lintel
+          sample_inset = Geometry.mm_to_inch(20.0)
+          if half_w > sample_inset * 2
+            pt_l = mid_xy - (u_dir * (half_w - sample_inset))
+            res_l = model.raytest([pt_l, Geom::Vector3d.new(0, 0, 1)])
+            if res_l && res_l[0]
+              diff_z = z_top - res_l[0].z
+              if diff_z > Geometry.mm_to_inch(15.0)
+                # Check hit face on left ray for arc
+                if res_l[1] && (hf_l = res_l[1].last) && hf_l.is_a?(Sketchup::Face)
+                  hf_l.edges.each do |e|
+                    if e.curve && e.curve.is_a?(Sketchup::ArcCurve)
+                      r = e.curve.radius
+                      return r.to_mm.round(0) if r >= Geometry.mm_to_inch(10.0)
+                    end
+                  end
+                end
+                # Geometric estimation of fillet radius: (d^2 + h^2) / (2h)
+                d = sample_inset
+                h = diff_z
+                approx_r = (d * d + h * h) / (2.0 * [h - d * 0.4, 0.1].max)
+                return [approx_r.to_mm.round(0), (half_w).to_mm.round(0)].min
+              end
+            end
+          end
+
+          0.0
+        rescue StandardError
+          0.0
         end
 
         # Di chuyển ranh giới opening và đỉnh WallFill cũ → mới (không cần dựng lại tường)
@@ -2211,6 +2375,24 @@ module NAUQ
                 .btn-secondary:hover {
                   background-color: var(--btn-secondary-hover);
                 }
+
+                .btn-tool {
+                  background-color: var(--btn-secondary);
+                  color: var(--text-main);
+                  border: 1px solid var(--border-color);
+                  padding: 0 10px;
+                  height: 34px;
+                  font-size: 11px;
+                  font-weight: 600;
+                  border-radius: 6px;
+                  cursor: pointer;
+                  white-space: nowrap;
+                  transition: background 0.15s;
+                }
+
+                .btn-tool:hover {
+                  background-color: var(--btn-secondary-hover);
+                }
               </style>
             </head>
             <body>
@@ -2257,10 +2439,11 @@ module NAUQ
                         <label>Chiều cao cửa (Tự tính mm)</label>
                         <input type="number" id="height_display" disabled style="background: #f1f5f9; color: var(--primary-color); font-weight: 700;">
                       </div>
-                      <div class="form-group full">
+                      <div class="form-group">
                         <label>Số cánh cửa</label>
                         <input type="number" id="panel_count" min="1" max="10" value="1" oninput="onInputChanged()" onchange="onInputChanged()" required>
                       </div>
+                      <input type="hidden" id="corner_radius" value="0">
                       <div class="form-group full">
                         <div class="fix-section-title">Cấu hình ô Fix kính (4 hướng)</div>
                         <div class="fix-grid">
@@ -2273,7 +2456,7 @@ module NAUQ
                             <input type="number" id="fix_top_height" placeholder="Cao" value="350" step="10" disabled oninput="onInputChanged()" onchange="onInputChanged()">
                           </div>
                           <!-- Bottom Fix -->
-                          <div class="fix-item">
+                          <div class="fix-item" id="fix_item_bottom">
                             <label class="fix-checkbox-label">
                               <input type="checkbox" id="has_fix_bottom" onchange="toggleFixInput('bottom'); onInputChanged();">
                               <span>Fix Dưới</span>
@@ -2432,16 +2615,15 @@ module NAUQ
                   };
                 }
 
-                function getNearestGoodClearWidths(w_clear_mm) {
+                function getNearestGoodClearWidths(w_clear_mm, totalDeduction) {
                   if (!w_clear_mm || w_clear_mm <= 0) return [];
-                  const frame2 = getFrameSize() * 2; // 100mm
                   const candidates = [];
 
                   // Tìm các mốc thông thủy đẹp nhỏ hơn (bước 10mm)
                   for (let cw = Math.floor(w_clear_mm / 10) * 10 - 10; cw >= Math.max(200, w_clear_mm - 400); cw -= 10) {
                     const res = evaluateLuBan522(cw);
                     if (res && res.isGood) {
-                      candidates.push({ clearWidth: cw, overallWidth: cw + frame2, cungName: res.cungName, subName: res.subName, diff: cw - w_clear_mm });
+                      candidates.push({ clearWidth: cw, overallWidth: cw + totalDeduction, cungName: res.cungName, subName: res.subName, diff: cw - w_clear_mm });
                       if (candidates.length >= 2) break;
                     }
                   }
@@ -2451,7 +2633,7 @@ module NAUQ
                   for (let cw = Math.ceil(w_clear_mm / 10) * 10 + 10; cw <= w_clear_mm + 400; cw += 10) {
                     const res = evaluateLuBan522(cw);
                     if (res && res.isGood) {
-                      upCandidates.push({ clearWidth: cw, overallWidth: cw + frame2, cungName: res.cungName, subName: res.subName, diff: cw - w_clear_mm });
+                      upCandidates.push({ clearWidth: cw, overallWidth: cw + totalDeduction, cungName: res.cungName, subName: res.subName, diff: cw - w_clear_mm });
                       if (upCandidates.length >= 2) break;
                     }
                   }
@@ -2471,15 +2653,28 @@ module NAUQ
 
                 function updateLuBanInfo() {
                   const wOverall = Number(document.getElementById('width').value) || 0;
-                  const frame2 = getFrameSize() * 2; // 100mm
-                  const wClear = Math.max(wOverall - frame2, 0); // Kích thước thông thủy = tổng các cánh
+                  const fw = getFrameSize(); // 50mm
+
+                  const hasFixL = document.getElementById('has_fix_left').checked;
+                  const fixLW = hasFixL ? (Number(document.getElementById('fix_left_width').value) || 0) : 0;
+                  const hasFixR = document.getElementById('has_fix_right').checked;
+                  const fixRW = hasFixR ? (Number(document.getElementById('fix_right_width').value) || 0) : 0;
+
+                  // 2 khung bao ngoài = 2 * fw (100mm)
+                  // Trừ thêm ô Fix Trái + đố nhôm đứng (fixLW + fw) nếu có
+                  // Trừ thêm ô Fix Phải + đố nhôm đứng (fixRW + fw) nếu có
+                  const leftDeduction = fw + (hasFixL ? (fixLW + fw) : 0);
+                  const rightDeduction = fw + (hasFixR ? (fixRW + fw) : 0);
+                  const totalDeduction = leftDeduction + rightDeduction;
+
+                  const wClear = Math.max(wOverall - totalDeduction, 0); // Kích thước thông thủy = lọt lòng các cánh
 
                   const card = document.getElementById('luban_card');
                   const badge = document.getElementById('luban_badge');
                   const detail = document.getElementById('luban_detail');
                   const pillsWrap = document.getElementById('luban_pills');
 
-                  if (!wOverall || wOverall <= frame2) {
+                  if (!wOverall || wOverall <= totalDeduction) {
                     card.className = 'luban-card';
                     badge.className = 'luban-badge neutral';
                     badge.innerText = '--';
@@ -2491,7 +2686,15 @@ module NAUQ
                   const res = evaluateLuBan522(wClear);
                   if (!res) return;
 
-                  const clearInfoText = 'Thông thủy (Tổng cánh): <b>' + wClear + ' mm</b> (Phủ bì: ' + wOverall + ' mm). ';
+                  var fixNote = '';
+                  if (hasFixL || hasFixR) {
+                    var fixParts = [];
+                    if (hasFixL) fixParts.push('Fix T: ' + fixLW + 'mm');
+                    if (hasFixR) fixParts.push('Fix P: ' + fixRW + 'mm');
+                    fixNote = ', trừ ô Fix (' + fixParts.join(', ') + ') & khung';
+                  }
+
+                  const clearInfoText = 'Thông thủy (Tổng cánh): <b>' + wClear + ' mm</b> (Phủ bì: ' + wOverall + ' mm' + fixNote + '). ';
 
                   if (res.isGood) {
                     card.className = 'luban-card is-good';
@@ -2506,7 +2709,7 @@ module NAUQ
                   }
 
                   // Render suggestion pills
-                  const nearest = getNearestGoodClearWidths(wClear);
+                  const nearest = getNearestGoodClearWidths(wClear, totalDeduction);
                   if (nearest.length > 0) {
                     let pillsHtml = '';
                     nearest.forEach(function(item) {
@@ -2526,6 +2729,7 @@ module NAUQ
                 }
 
                 document.addEventListener('DOMContentLoaded', () => {
+                  updateBottomFixState();
                   renderPreview();
                   updateLuBanInfo();
                 });
@@ -2568,6 +2772,33 @@ module NAUQ
                   onInputChanged();
                 }
 
+                function updateBottomFixState() {
+                  var isDoor = (currentType === 'door');
+                  var chkBottom = document.getElementById('has_fix_bottom');
+                  var inputBottom = document.getElementById('fix_bottom_height');
+                  var itemBottom = document.getElementById('fix_item_bottom');
+                  if (isDoor) {
+                    chkBottom.checked = false;
+                    chkBottom.disabled = true;
+                    inputBottom.disabled = true;
+                    if (itemBottom) {
+                      itemBottom.style.opacity = '0.45';
+                      itemBottom.style.filter = 'grayscale(1)';
+                      itemBottom.style.pointerEvents = 'none';
+                      itemBottom.title = 'Cửa đi không có ô fix dưới';
+                    }
+                  } else {
+                    chkBottom.disabled = false;
+                    inputBottom.disabled = !chkBottom.checked;
+                    if (itemBottom) {
+                      itemBottom.style.opacity = '1';
+                      itemBottom.style.filter = 'none';
+                      itemBottom.style.pointerEvents = 'auto';
+                      itemBottom.title = '';
+                    }
+                  }
+                }
+
                 function selectType(t) {
                   currentType = t;
                   document.getElementById('btn_door').classList.toggle('active', t === 'door');
@@ -2583,6 +2814,7 @@ module NAUQ
                       offsetEl.value = 900;
                     }
                   }
+                  updateBottomFixState();
                   updateCalculatedHeight();
                   renderPreview();
                   updateLuBanInfo();
@@ -2624,15 +2856,16 @@ module NAUQ
                   updateCalculatedHeight();
 
                   document.getElementById('panel_count').value = data.panel_count || 1;
+                  document.getElementById('corner_radius').value = data.corner_radius || 0;
 
                   // 4 Fix options
                   document.getElementById('has_fix_top').checked = !!data.has_fix_top;
                   document.getElementById('fix_top_height').value = data.fix_top_height || 350;
                   document.getElementById('fix_top_height').disabled = !data.has_fix_top;
 
-                  document.getElementById('has_fix_bottom').checked = !!data.has_fix_bottom;
+                  document.getElementById('has_fix_bottom').checked = isWindow ? !!data.has_fix_bottom : false;
                   document.getElementById('fix_bottom_height').value = data.fix_bottom_height || 400;
-                  document.getElementById('fix_bottom_height').disabled = !data.has_fix_bottom;
+                  document.getElementById('fix_bottom_height').disabled = isWindow ? !data.has_fix_bottom : true;
 
                   document.getElementById('has_fix_left').checked = !!data.has_fix_left;
                   document.getElementById('fix_left_width').value = data.fix_left_width || 300;
@@ -2641,6 +2874,8 @@ module NAUQ
                   document.getElementById('has_fix_right').checked = !!data.has_fix_right;
                   document.getElementById('fix_right_width').value = data.fix_right_width || 300;
                   document.getElementById('fix_right_width').disabled = !data.has_fix_right;
+
+                  updateBottomFixState();
 
                   const label = document.getElementById('target_label');
                   if (data.count > 1) {
@@ -2651,6 +2886,12 @@ module NAUQ
 
                   renderPreview();
                   updateLuBanInfo();
+                }
+
+                function setAutoArch() {
+                  var w = Number(document.getElementById('width').value) || 900;
+                  document.getElementById('corner_radius').value = Math.round(w / 2.0);
+                  onInputChanged();
                 }
 
                 function onInputChanged() {
@@ -2685,7 +2926,9 @@ module NAUQ
                   if (hasFixL) fixTags.push('L');
                   if (hasFixR) fixTags.push('R');
 
-                  var tag = (isDoor ? 'DOOR' : 'WINDOW') + ' (' + panels + 'P' + (fixTags.length > 0 ? ' + FIX ' + fixTags.join('/') : '') + ')';
+                  var crVal = Number(document.getElementById('corner_radius') ? document.getElementById('corner_radius').value : 0) || 0;
+                  var archTag = crVal > 0 ? (' [Vòm R=' + Math.round(crVal) + ']') : '';
+                  var tag = (isDoor ? 'DOOR' : 'WINDOW') + ' (' + panels + 'P' + (fixTags.length > 0 ? ' + FIX ' + fixTags.join('/') : '') + ')' + archTag;
                   document.getElementById('preview_tag').innerText = tag;
 
                   // Proportional Geometric Layout Engine (Tỷ lệ thẩm mỹ cố định)
@@ -2716,14 +2959,48 @@ module NAUQ
                   svg += '  </linearGradient>';
                   svg += '</defs>';
 
+                  var r_svg = (crVal > 1) ? Math.min(Math.round((crVal / Math.max(wInput, 1)) * W), Math.round(W / 2)) : 0;
+                  var inner_r_svg = r_svg > frameT ? (r_svg - frameT) : 0;
+
                   // 1. Outer Frame Box
-                  if (isDoor && !hasFixB) {
-                    // Door without bottom fix (U-shaped opening at bottom for active area)
-                    svg += '<path d="M' + ox + ' ' + (oy + H) + ' V' + oy + ' H' + (ox + W) + ' V' + (oy + H) + ' H' + (ox + W - frameT) + ' V' + (oy + frameT) + ' H' + (ox + frameT) + ' V' + (oy + H) + ' Z" fill="#334155" />';
+                  if (r_svg > 2) {
+                    if (isDoor && !hasFixB) {
+                      var d_outer = 'M ' + ox + ' ' + (oy + H) + 
+                                    ' V ' + (oy + r_svg) + 
+                                    ' A ' + r_svg + ' ' + r_svg + ' 0 0 1 ' + (ox + r_svg) + ' ' + oy + 
+                                    ' H ' + (ox + W - r_svg) + 
+                                    ' A ' + r_svg + ' ' + r_svg + ' 0 0 1 ' + (ox + W) + ' ' + (oy + r_svg) + 
+                                    ' V ' + (oy + H) + 
+                                    ' H ' + (ox + W - frameT) + 
+                                    ' V ' + (oy + frameT + inner_r_svg) + 
+                                    ' A ' + inner_r_svg + ' ' + inner_r_svg + ' 0 0 0 ' + (ox + W - frameT - inner_r_svg) + ' ' + (oy + frameT) + 
+                                    ' H ' + (ox + frameT + inner_r_svg) + 
+                                    ' A ' + inner_r_svg + ' ' + inner_r_svg + ' 0 0 0 ' + (ox + frameT) + ' ' + (oy + frameT + inner_r_svg) + 
+                                    ' V ' + (oy + H) + ' Z';
+                      svg += '<path d="' + d_outer + '" fill="#334155" />';
+                    } else {
+                      var d_out_box = 'M ' + ox + ' ' + (oy + H) + 
+                                      ' V ' + (oy + r_svg) + 
+                                      ' A ' + r_svg + ' ' + r_svg + ' 0 0 1 ' + (ox + r_svg) + ' ' + oy + 
+                                      ' H ' + (ox + W - r_svg) + 
+                                      ' A ' + r_svg + ' ' + r_svg + ' 0 0 1 ' + (ox + W) + ' ' + (oy + r_svg) + 
+                                      ' V ' + (oy + H) + ' Z';
+                      var d_in_box = 'M ' + (ox + frameT) + ' ' + (oy + H - frameT) + 
+                                     ' V ' + (oy + frameT + inner_r_svg) + 
+                                     ' A ' + inner_r_svg + ' ' + inner_r_svg + ' 0 0 1 ' + (ox + frameT + inner_r_svg) + ' ' + (oy + frameT) + 
+                                     ' H ' + (ox + W - frameT - inner_r_svg) + 
+                                     ' A ' + inner_r_svg + ' ' + inner_r_svg + ' 0 0 1 ' + (ox + W - frameT) + ' ' + (oy + frameT + inner_r_svg) + 
+                                     ' V ' + (oy + H - frameT) + ' Z';
+                      svg += '<path d="' + d_out_box + '" fill="#334155" />';
+                      svg += '<path d="' + d_in_box + '" fill="#f8fafc" />';
+                    }
                   } else {
-                    // Closed 4-sided outer frame
-                    svg += '<rect x="' + ox + '" y="' + oy + '" width="' + W + '" height="' + H + '" fill="#334155" rx="1" />';
-                    svg += '<rect x="' + (ox + frameT) + '" y="' + (oy + frameT) + '" width="' + (W - 2 * frameT) + '" height="' + (H - 2 * frameT) + '" fill="#f8fafc" />';
+                    if (isDoor && !hasFixB) {
+                      svg += '<path d="M' + ox + ' ' + (oy + H) + ' V' + oy + ' H' + (ox + W) + ' V' + (oy + H) + ' H' + (ox + W - frameT) + ' V' + (oy + frameT) + ' H' + (ox + frameT) + ' V' + (oy + H) + ' Z" fill="#334155" />';
+                    } else {
+                      svg += '<rect x="' + ox + '" y="' + oy + '" width="' + W + '" height="' + H + '" fill="#334155" rx="1" />';
+                      svg += '<rect x="' + (ox + frameT) + '" y="' + (oy + frameT) + '" width="' + (W - 2 * frameT) + '" height="' + (H - 2 * frameT) + '" fill="#f8fafc" />';
+                    }
                   }
 
                   // 2. Active Leaf Coordinate Bounds
@@ -2740,7 +3017,17 @@ module NAUQ
                     var lfh = (oy + H - frameT) - lfy;
 
                     // Fix Glass
-                    svg += '<rect x="' + lfx + '" y="' + lfy + '" width="' + fixLW + '" height="' + Math.max(lfh, 1) + '" fill="url(#fixGlassGrad)" stroke="#3b82f6" stroke-width="0.5" />';
+                    var cur_lf_r = (inner_r_svg > 2) ? Math.min(inner_r_svg, fixLW) : 0;
+                    if (cur_lf_r > 1) {
+                      var d_lfg = 'M ' + lfx + ' ' + (lfy + lfh) + 
+                                  ' L ' + (lfx + fixLW) + ' ' + (lfy + lfh) + 
+                                  ' L ' + (lfx + fixLW) + ' ' + lfy + 
+                                  ' L ' + (lfx + cur_lf_r) + ' ' + lfy + 
+                                  ' A ' + cur_lf_r + ' ' + cur_lf_r + ' 0 0 0 ' + lfx + ' ' + (lfy + cur_lf_r) + ' Z';
+                      svg += '<path d="' + d_lfg + '" fill="url(#fixGlassGrad)" stroke="#3b82f6" stroke-width="0.5" />';
+                    } else {
+                      svg += '<rect x="' + lfx + '" y="' + lfy + '" width="' + fixLW + '" height="' + Math.max(lfh, 1) + '" fill="url(#fixGlassGrad)" stroke="#3b82f6" stroke-width="0.5" />';
+                    }
                     // Mullion Bar
                     svg += '<rect x="' + (lfx + fixLW) + '" y="' + lfy + '" width="' + frameT + '" height="' + Math.max(lfh, 1) + '" fill="#334155" />';
                     // Bottom Sill Bar (always present under side fixes)
@@ -2756,7 +3043,17 @@ module NAUQ
                     // Mullion Bar
                     svg += '<rect x="' + (rfx - frameT) + '" y="' + rfy + '" width="' + frameT + '" height="' + Math.max(rfh, 1) + '" fill="#334155" />';
                     // Fix Glass
-                    svg += '<rect x="' + rfx + '" y="' + rfy + '" width="' + fixRW + '" height="' + Math.max(rfh, 1) + '" fill="url(#fixGlassGrad)" stroke="#3b82f6" stroke-width="0.5" />';
+                    var cur_rf_r = (inner_r_svg > 2) ? Math.min(inner_r_svg, fixRW) : 0;
+                    if (cur_rf_r > 1) {
+                      var d_rfg = 'M ' + rfx + ' ' + (rfy + rfh) + 
+                                  ' L ' + (rfx + fixRW) + ' ' + (rfy + rfh) + 
+                                  ' L ' + (rfx + fixRW) + ' ' + (rfy + cur_rf_r) + 
+                                  ' A ' + cur_rf_r + ' ' + cur_rf_r + ' 0 0 0 ' + (rfx + fixRW - cur_rf_r) + ' ' + rfy + 
+                                  ' L ' + rfx + ' ' + rfy + ' Z';
+                      svg += '<path d="' + d_rfg + '" fill="url(#fixGlassGrad)" stroke="#3b82f6" stroke-width="0.5" />';
+                    } else {
+                      svg += '<rect x="' + rfx + '" y="' + rfy + '" width="' + fixRW + '" height="' + Math.max(rfh, 1) + '" fill="url(#fixGlassGrad)" stroke="#3b82f6" stroke-width="0.5" />';
+                    }
                     // Bottom Sill Bar (always present under side fixes)
                     svg += '<rect x="' + (rfx - frameT) + '" y="' + (oy + H - frameT) + '" width="' + (fixRW + frameT) + '" height="' + frameT + '" fill="#334155" />';
                   }
@@ -2764,8 +3061,28 @@ module NAUQ
                   // Top Fix (Transom)
                   if (hasFixT) {
                     var tfy = oy + frameT;
-                    // Glass
-                    svg += '<rect x="' + actX0 + '" y="' + tfy + '" width="' + actW + '" height="' + fixTH + '" fill="url(#fixGlassGrad)" stroke="#3b82f6" stroke-width="0.5" />';
+                    var round_tf_l = (inner_r_svg > 2) && !hasFixL;
+                    var round_tf_r = (inner_r_svg > 2) && !hasFixR;
+                    if (round_tf_l || round_tf_r) {
+                      var d_tf = 'M ' + actX0 + ' ' + (tfy + fixTH) + 
+                                 ' L ' + (actX0 + actW) + ' ' + (tfy + fixTH) + ' ';
+                      if (round_tf_r) {
+                        d_tf += 'L ' + (actX0 + actW) + ' ' + (tfy + inner_r_svg) + 
+                                ' A ' + inner_r_svg + ' ' + inner_r_svg + ' 0 0 0 ' + (actX0 + actW - inner_r_svg) + ' ' + tfy + ' ';
+                      } else {
+                        d_tf += 'L ' + (actX0 + actW) + ' ' + tfy + ' ';
+                      }
+                      if (round_tf_l) {
+                        d_tf += 'L ' + (actX0 + inner_r_svg) + ' ' + tfy + 
+                                ' A ' + inner_r_svg + ' ' + inner_r_svg + ' 0 0 0 ' + actX0 + ' ' + (tfy + inner_r_svg) + ' ';
+                      } else {
+                        d_tf += 'L ' + actX0 + ' ' + tfy + ' ';
+                      }
+                      d_tf += 'Z';
+                      svg += '<path d="' + d_tf + '" fill="url(#fixGlassGrad)" stroke="#3b82f6" stroke-width="0.5" />';
+                    } else {
+                      svg += '<rect x="' + actX0 + '" y="' + tfy + '" width="' + actW + '" height="' + fixTH + '" fill="url(#fixGlassGrad)" stroke="#3b82f6" stroke-width="0.5" />';
+                    }
                     // Transom Bar
                     svg += '<rect x="' + actX0 + '" y="' + (tfy + fixTH) + '" width="' + actW + '" height="' + frameT + '" fill="#334155" />';
                   }
@@ -2788,10 +3105,59 @@ module NAUQ
                     var lh = actH;
                     var lFrame = 3;
 
-                    // Leaf Frame Outer
-                    svg += '<rect x="' + (lx + 0.5) + '" y="' + ly + '" width="' + (lw - 1) + '" height="' + lh + '" fill="#475569" stroke="#1e293b" stroke-width="0.75" rx="0.5" />';
-                    // Leaf Glass
-                    svg += '<rect x="' + (lx + lFrame) + '" y="' + (ly + lFrame) + '" width="' + Math.max(lw - 2 * lFrame - 1, 1) + '" height="' + Math.max(lh - 2 * lFrame, 1) + '" fill="url(#glassGrad)" stroke="#0284c7" stroke-width="0.5" />';
+                    var isCurvedLeaf = (inner_r_svg > 2) && !hasFixT;
+                    var leaf_r = isCurvedLeaf ? Math.min(inner_r_svg, (panels === 1 ? (lw / 2) : lw)) : 0;
+                    var roundLeft = isCurvedLeaf && (i === 0) && !hasFixL;
+                    var roundRight = isCurvedLeaf && (i === panels - 1) && !hasFixR;
+
+                    if (roundLeft || roundRight) {
+                      // Curved leaf frame
+                      var d_leaf = 'M ' + (lx + 0.5) + ' ' + (ly + lh) + 
+                                   ' L ' + (lx + lw - 0.5) + ' ' + (ly + lh) + ' ';
+                      if (roundRight) {
+                        d_leaf += 'L ' + (lx + lw - 0.5) + ' ' + (ly + leaf_r) + 
+                                  ' A ' + leaf_r + ' ' + leaf_r + ' 0 0 0 ' + (lx + lw - 0.5 - leaf_r) + ' ' + ly + ' ';
+                      } else {
+                        d_leaf += 'L ' + (lx + lw - 0.5) + ' ' + ly + ' ';
+                      }
+                      if (roundLeft) {
+                        d_leaf += 'L ' + (lx + 0.5 + leaf_r) + ' ' + ly + 
+                                  ' A ' + leaf_r + ' ' + leaf_r + ' 0 0 0 ' + (lx + 0.5) + ' ' + (ly + leaf_r) + ' ';
+                      } else {
+                        d_leaf += 'L ' + (lx + 0.5) + ' ' + ly + ' ';
+                      }
+                      d_leaf += 'Z';
+                      svg += '<path d="' + d_leaf + '" fill="#475569" stroke="#1e293b" stroke-width="0.75" />';
+
+                      // Curved leaf glass
+                      var glx = lx + lFrame;
+                      var gly = ly + lFrame;
+                      var glw = Math.max(lw - 2 * lFrame - 1, 1);
+                      var glh = Math.max(lh - 2 * lFrame, 1);
+                      var glass_r = Math.max(leaf_r - lFrame, 0);
+
+                      var d_glass = 'M ' + glx + ' ' + (gly + glh) + 
+                                    ' L ' + (glx + glw) + ' ' + (gly + glh) + ' ';
+                      if (roundRight && glass_r > 1) {
+                        d_glass += 'L ' + (glx + glw) + ' ' + (gly + glass_r) + 
+                                   ' A ' + glass_r + ' ' + glass_r + ' 0 0 0 ' + (glx + glw - glass_r) + ' ' + gly + ' ';
+                      } else {
+                        d_glass += 'L ' + (glx + glw) + ' ' + gly + ' ';
+                      }
+                      if (roundLeft && glass_r > 1) {
+                        d_glass += 'L ' + (glx + glass_r) + ' ' + gly + 
+                                   ' A ' + glass_r + ' ' + glass_r + ' 0 0 0 ' + glx + ' ' + (gly + glass_r) + ' ';
+                      } else {
+                        d_glass += 'L ' + glx + ' ' + gly + ' ';
+                      }
+                      d_glass += 'Z';
+                      svg += '<path d="' + d_glass + '" fill="url(#glassGrad)" stroke="#0284c7" stroke-width="0.5" />';
+                    } else {
+                      // Leaf Frame Outer Rectangular
+                      svg += '<rect x="' + (lx + 0.5) + '" y="' + ly + '" width="' + (lw - 1) + '" height="' + lh + '" fill="#475569" stroke="#1e293b" stroke-width="0.75" rx="0.5" />';
+                      // Leaf Glass Rectangular
+                      svg += '<rect x="' + (lx + lFrame) + '" y="' + (ly + lFrame) + '" width="' + Math.max(lw - 2 * lFrame - 1, 1) + '" height="' + Math.max(lh - 2 * lFrame, 1) + '" fill="url(#glassGrad)" stroke="#0284c7" stroke-width="0.5" />';
+                    }
 
                     // Architectural Handle Indicator (Tay nắm cửa)
                     if (isDoor) {
@@ -2818,10 +3184,11 @@ module NAUQ
                   const offset = isDoor ? 0 : (Number(document.getElementById('z_offset').value) || 0);
                   const h = isDoor ? topCote : Math.max(topCote - offset, 100);
                   const p = Number(document.getElementById('panel_count').value);
+                  const cr = Number(document.getElementById('corner_radius').value) || 0;
 
                   const fixTop = document.getElementById('has_fix_top').checked;
                   const fixTopH = Number(document.getElementById('fix_top_height').value) || 350;
-                  const fixBot = document.getElementById('has_fix_bottom').checked;
+                  const fixBot = isDoor ? false : document.getElementById('has_fix_bottom').checked;
                   const fixBotH = Number(document.getElementById('fix_bottom_height').value) || 400;
                   const fixLeft = document.getElementById('has_fix_left').checked;
                   const fixLeftW = Number(document.getElementById('fix_left_width').value) || 300;
@@ -2838,6 +3205,7 @@ module NAUQ
                     width: w,
                     height: h,
                     z_offset: offset,
+                    corner_radius: cr,
                     panel_count: p,
                     has_fix_top: fixTop,
                     fix_top_height: fixTopH,

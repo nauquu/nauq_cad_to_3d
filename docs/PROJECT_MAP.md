@@ -1,6 +1,6 @@
 # PROJECT MAP — NAUQ CAD TO 3D
 
-Plugin tự động chuyển đổi bản vẽ 2D DWG kiến trúc (AutoCAD) thành mô hình 3D SketchUp phân lớp chuẩn xác.
+Plugin architecture map, directory layout, and SketchUp entity group hierarchy.
 
 ---
 
@@ -8,17 +8,17 @@ Plugin tự động chuyển đổi bản vẽ 2D DWG kiến trúc (AutoCAD) th�
 
 ```text
 NAU_CAD_TO_3D/
-├── nauq_cad_to_3d.rb            # Entry point, orchestrator & toolbar/menu init
+├── nauq_cad_to_3d.rb            # Entry point, orchestrator & toolbar/menu initialization
 ├── main.rb                      # Proxy loader for backward compatibility
-├── build_rbz.ps1                # Script đóng gói Trimble-compliant .rbz
-├── AGENTS.md                    # Quy tắc workflow & SemVer
-├── README.md                    # Tổng quan giới thiệu & hướng dẫn sử dụng
+├── build_rbz.ps1                # Script to produce Trimble-compliant .rbz distribution
+├── AGENTS.md                    # Workflow rules & SemVer guidelines
+├── README.md                    # Overview, features & installation instructions
 │
 ├── core/
 │   ├── attribute.rb             # Tagging & metadata management on SketchUp entities
-│   ├── config.rb                # Persistent settings & configuration keys
-│   ├── geometry.rb              # Math, conversions (mm <-> inch), point/plane/vector helpers
-│   ├── logger.rb                # Structured logger (debug/info/warn/error) & error aggregator
+│   ├── config.rb                # Persistent settings & configuration dictionary
+│   ├── geometry.rb              # Math helpers, conversions (mm <-> inch), point/vector math
+│   ├── logger.rb                # Structured logger (debug/info/warn/error) & aggregation
 │   └── progress.rb              # UI Progress notification bar
 │
 ├── import/
@@ -28,11 +28,11 @@ NAU_CAD_TO_3D/
 │   └── block_parser.rb          # Block (ComponentInstance) parsing for doors/windows
 │
 ├── wall/
-│   ├── wall_detector.rb         # Scans 2D wall edges from '0-netcat' layer
-│   ├── wall_cleanup.rb          # Level C cleanup (snapping, deduplication, auto-close gaps)
-│   ├── wall_builder.rb          # Reference creation & final wall extrusion orchestrator
+│   ├── wall_detector.rb         # Scans 2D wall edges from specified CAD wall layers
+│   ├── wall_cleanup.rb          # Snapping, deduplication, and auto-closing micro gaps
+│   ├── wall_builder.rb          # 2D reference creation & final wall extrusion orchestrator
 │   ├── wall_fill_builder.rb     # Generates base wall profiles + opening top/bottom WallFills
-│   ├── wall_fill_tool.rb        # Interactive tool to create wallfill / lintels by clicking jamb faces
+│   ├── wall_fill_tool.rb        # Interactive tool to create wallfill/lintels on clicked jambs
 │   └── overlap_edge_cleaner.rb  # Hide / unhide coplanar overlapping wall seam edges
 │
 ├── opening/
@@ -40,18 +40,18 @@ NAU_CAD_TO_3D/
 │   └── opening_normalizer.rb    # Snaps openings to wall reference, calculates depth & aligns
 │
 ├── door/
-│   ├── door_builder.rb          # Coordinates automatic door generation across CAD openings with flexible grouping modes
-│   ├── door_generator.rb        # Parametric door generator (V20 architecture, swing & 2-track sliding support)
+│   ├── door_builder.rb          # Coordinates automatic door generation across CAD openings
+│   ├── door_generator.rb        # Parametric door generator (V20 architecture, swing & sliding)
 │   ├── frame_builder.rb         # Door & window frame 3D geometry builder with transom support
-│   ├── leaf_builder.rb          # Door & window leaf 3D builder (FollowMe algorithm with embedded leaf glass)
+│   ├── leaf_builder.rb          # Door & window leaf 3D builder (FollowMe with embedded glass)
 │   ├── glass_builder.rb         # Transom & fix glass panel builder with custom Y offsets
-│   └── opening_door_tool.rb     # Interactive raycast door placement tool with opening highlight & flush exterior alignment
+│   └── opening_door_tool.rb     # Interactive raycast door placement tool with opening highlight
 │
 ├── window/
-│   └── window_builder.rb        # Parametric window 3D geometry builder with flexible grouping modes
+│   └── window_builder.rb        # Parametric window 3D geometry builder with grouping modes
 │
 ├── stair/
-│   ├── stair_builder.rb         # Parametric concrete/wood stair generator with landing & feng-shui steps
+│   ├── stair_builder.rb         # Parametric concrete/wood stair generator with landing calculations
 │   └── railing_builder.rb       # Glass, metal, and wood staircase railing & handrail builder
 │
 ├── library/
@@ -81,13 +81,21 @@ NAU_CAD_TO_3D/
 
 ## 2. SketchUp Group Hierarchy
 
-Toàn bộ mô hình đầu ra được tổ chức trực tiếp tại cấp gốc (`model.entities`) thành các group container độc lập:
+All output geometry is organized directly at the root level (`model.entities`) into dedicated container groups:
 
 ```text
 Active Model
-├── NAUQ_CAD_ORIGINAL (Group)  # Chứa toàn bộ hình học 2D CAD DWG gốc (Layer 0, nét ẩn)
-├── NAUQ_WALLS (Group)         # Chứa Base Wall và WallFill sau khi dựng 3D
-├── NAUQ_DOORS (Group)         # Chứa toàn bộ ComponentInstance cửa đi 3D
-├── NAUQ_WINDOWS (Group)       # Chứa toàn bộ ComponentInstance cửa sổ 3D
-└── NAUQ_SLAB (Group)          # [Tùy chọn] Sàn bê tông trên đỉnh tường (trừ dầm 400mm)
+├── NAUQ_CAD_ORIGINAL (Group)  # Raw 2D CAD geometry (Layer 0, hidden edges)
+├── NAUQ_WALLS (Group)         # Base walls and WallFill geometry
+├── NAUQ_DOORS (Group)         # 3D door component instances
+├── NAUQ_WINDOWS (Group)       # 3D window component instances
+└── NAUQ_SLAB (Group)          # [Optional] Concrete ceiling slab (400mm beam exclusion)
 ```
+
+---
+
+## Tóm tắt tiếng Việt (Vietnamese Summary)
+
+### Sơ đồ thư mục & Phân cấp mô hình SketchUp
+- **Cấu trúc module:** Phân tách rõ ràng giữa `core/` (hạ tầng, hình học, log), `import/` (xử lý CAD DWG & Clipboard), `wall/` (dựng tường 2D & WallFill), `opening/` (nhận diện & chuẩn hóa khẩu độ), `door/` & `window/` (sinh cửa V20 tham số), `stair/` (cầu thang), `ui/` (hộp thoại HTML/JS phẳng & công cụ tương tác).
+- **Phân nhóm trong SketchUp:** Mô hình xuất ra được gom vào 5 nhóm độc lập tại gốc model (`NAUQ_CAD_ORIGINAL`, `NAUQ_WALLS`, `NAUQ_DOORS`, `NAUQ_WINDOWS`, `NAUQ_SLAB`), không tạo group cha lồng nhau để đảm bảo quản lý phân lớp và xuất khối lượng thuận tiện.

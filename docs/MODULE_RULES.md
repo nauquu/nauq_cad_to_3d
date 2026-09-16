@@ -1,50 +1,76 @@
 # MODULE RULES & CONSTRAINTS — NAUQ CAD TO 3D
 
-Tài liệu quy định các nguyên tắc bất biến (Invariants), giới hạn và quy chuẩn lập trình bắt buộc khi phát triển hoặc sửa đổi plugin.
+This document specifies mandatory architectural invariants, constraints, and coding standards required when developing or refactoring the plugin.
 
 ---
 
-## 1. Các nguyên tắc cấm (STRICT "DO NOT" RULES)
+## 1. Strict "DO NOT" Invariants
 
-1. **KHÔNG dùng `WallCutter` hay Boolean cutting:**
-   - Tuyệt đối không gọi `cut_all_openings`, `intersect_with`, hoặc tạo khối hộp cutter đục xuyên qua tường.
-   - Không được dựng solid tường bao trùm rồi cắt bỏ vùng cửa.
+1. **DO NOT Use `WallCutter` or Boolean Cutting:**
+   - Never invoke `cut_all_openings`, `intersect_with`, or construct bounding boxes to slice or punch through walls.
+   - Never build a continuous solid wall to subsequently subtract opening volumes.
 
-2. **KHÔNG pushpull tường trước khi biết Opening:**
-   - Không được pushpull Wall Face 2D trong giai đoạn reference.
-   - Toàn bộ pushpull chỉ diễn ra 1 lần duy nhất ở Phase 5 sau khi đã có đầy đủ danh sách `normalized_openings`.
+2. **DO NOT Pushpull Walls Before Normalizing Openings:**
+   - Do not extrude 2D wall faces during the reference generation phase.
+   - All wall pushpull operations must execute exactly once in Phase 5 after the complete `normalized_openings` list is finalized.
 
-3. **KHÔNG hardcode trục tọa độ toàn cục (Global X/Y):**
-   - Mọi tính toán hình học trên tường/cửa phải dùng hệ vector cục bộ: $U$ (dọc tường), $N$ (ngang tường), $Z$ (thẳng đứng).
+3. **DO NOT Hardcode Global Coordinates (Global X/Y):**
+   - All geometric calculations on walls and openings must utilize the local vector basis: $U$ (longitudinal along wall), $N$ (transverse/thickness), and $Z$ (vertical).
 
-4. **KHÔNG nuốt Exception (Do NOT swallow exceptions):**
-   - Mọi lỗi hình học hay add_face thất bại phải được ghi nhận qua `Logger.warn` hoặc `Logger.error` kèm tọa độ / ID đối tượng.
-   - Nếu một opening bị lỗi không tạo được profile, bỏ qua opening đó và tiếp tục dựng các phần còn lại, **không làm crash toàn bộ quy trình**.
+4. **DO NOT Swallow Exceptions:**
+   - Geometry generation failures or `add_face` errors must be logged via `Logger.warn` or `Logger.error` with entity coordinates and IDs.
+   - If an opening fails to generate, isolate and skip that opening while completing the rest of the model; **never crash the entire execution pipeline**.
 
-5. **KHÔNG thay đổi cấu trúc 4 Group Container cấp gốc:**
-   - Mọi thực thể 3D phải nằm đúng trong một trong các nhóm: `NAUQ_CAD_ORIGINAL`, `NAUQ_WALLS`, `NAUQ_DOORS`, `NAUQ_WINDOWS`, `NAUQ_SLAB`.
-   - Không tạo thêm group container cha bao bọc bên ngoài.
+5. **DO NOT Alter the Root Container Group Structure:**
+   - All 3D entities must reside within their designated root-level groups: `NAUQ_CAD_ORIGINAL`, `NAUQ_WALLS`, `NAUQ_DOORS`, `NAUQ_WINDOWS`, `NAUQ_SLAB`.
+   - Do not introduce wrapping parent groups around these top-level containers.
 
----
+6. **DO NOT Add Bottom Fix Panels to Doors (`has_fix_bottom`):**
+   - Doors must never feature bottom fix panels (`has_fix_bottom`). Bottom fix logic is exclusively reserved for windows (`:window`). UI dialogs and generators must enforce `has_fix_bottom = false` for doors.
 
-## 2. Quy chuẩn đơn vị đo lường (Units & Tolerances)
-
-- **Giao diện & Cấu hình:** Luôn hiển thị và nhận đầu vào bằng đơn vị **Milimét (mm)**.
-- **SketchUp Internal:** API SketchUp dùng đơn vị **Inches**.
-- **Chuyển đổi:** Bắt buộc sử dụng các hàm tiện ích trong `Core::GeometryHelper` (`mm_to_inch`, `inch_to_mm`).
-- **Dung sai hình học (Geometric Tolerances):**
-  - Snap điểm nối nét (Vertex Clustering): `10.0 mm`
-  - Sai số khoảng cách điểm tới mặt phẳng (Point-to-Plane): `5.0 mm`
-  - Sai số song song giữa 2 vector: `0.001 radian (~0.05 độ)`
+7. **DO NOT Pass Duplicate Adjacent Vertices to `entities.add_face`:**
+   - SketchUp C++ kernel strictly raises `ArgumentError: Duplicate points in array` when consecutive or closing vertices have distance $< 0.001\text{mm}$. Always sanitize and deduplicate contour points before building faces for curved/arched profiles.
 
 ---
 
-## 3. Code Quality / Lint (RuboCop-SketchUp)
+## 2. Measurement Units & Geometric Tolerances
 
-Toàn bộ codebase phải giữ **0 offenses** khi quét bằng `rubocop-sketchup` (config mặc định của gem) — đây là bộ công cụ reviewer Extension Warehouse dùng để kiểm tra extension.
+- **User Interface & Configuration:** Always displayed and received in **Millimeters (mm)**.
+- **SketchUp Internal Representation:** The SketchUp Ruby API internally measures lengths in **Inches**.
+- **Unit Conversions:** Always use conversion helpers from `Core::GeometryHelper` (`mm_to_inch`, `inch_to_mm`).
+- **Geometric Tolerances:**
+  - Vertex Clustering / Snapping: `10.0 mm`
+  - Point-to-Plane Distance Threshold: `5.0 mm`
+  - Vector Parallelism Tolerance: `0.001 radian (~0.05 degrees)`
 
-1. **Tên operation (Undo):** `start_operation` tối đa **25 ký tự**, Title Case, không dấu câu, không đuôi `.rbe/.rb` — theo `SketchupSuggestions/OperationName`.
-2. **Tool vẽ overlay:** Mọi tool có `draw` bắt buộc implement `getExtents` (tránh bị cắt góc) và `suspend`/`deactivate` phải gọi `view.invalidate`; tool nhận input qua VCB phải có `enableVCB?`.
-3. **`__FILE__` / `__dir__`:** Luôn `dup` + `force_encoding('UTF-8')` trước khi dùng (bug encoding Windows trên máy có tên user không phải ASCII).
-4. **Root-context `model.entities` / `add_group`:** Cho phép ngoại lệ có chủ đích (build vào group container cấp gốc `NAUQ_*` bất kể active context), nhưng **bắt buộc** kèm directive `# rubocop:disable SketchupSuggestions/ModelEntities` (hoặc `AddGroup`) và **comment giải thích lý do** ngay tại dòng/module đó.
-5. **Console output:** Chỉ in qua `NAUQ::CadTo3D.debug_puts` (gated bởi `DEBUG_MODE`), không dùng `puts` trần — yêu cầu của Extension Warehouse.
+---
+
+## 3. Code Quality & Linting (RuboCop-SketchUp Compliance)
+
+The codebase must maintain **0 offenses** when scanned with `rubocop-sketchup` (standard ruleset required by the SketchUp Extension Warehouse technical review team):
+
+1. **Operation Names (Undo Stack):** `start_operation` names must be $\le$ **25 characters**, Title Case, with no punctuation or file extensions (`.rb`/`.rbe`) per `SketchupSuggestions/OperationName`.
+2. **Overlay Drawing Tools:** Every interactive tool implementing `draw` must implement `getExtents` (to prevent viewport clipping) and invalidate the view in `suspend` and `deactivate`. Tools accepting VCB typed inputs must implement `enableVCB?`.
+3. **Encoding for `__FILE__` / `__dir__`:** Paths must be duplicated and UTF-8 forced (`.dup.force_encoding('UTF-8')`) before file operations to avoid Windows path encoding bugs on non-ASCII user profiles.
+4. **Root-Context Geometry (`model.entities` / `add_group`):** Deliberately allowed for root-level container initialization, but **must** include `# rubocop:disable SketchupSuggestions/ModelEntities` (or `AddGroup`) with an accompanying explanatory comment.
+5. **Console Output:** Raw `puts` is prohibited. Use `NAUQ::CadTo3D.debug_puts` (gated by `DEBUG_MODE`) to comply with Extension Warehouse guidelines.
+
+---
+
+## Tóm tắt tiếng Việt (Vietnamese Summary)
+
+### Các nguyên tắc bất biến & Ràng buộc cốt lõi
+1. **Tuyệt đối cấm:**
+   - Không dùng Boolean/WallCutter để đục tường (phải dùng Face 2D + WallFill).
+   - Không pushpull trước khi chuẩn hóa xong lỗ mở.
+   - Không tính toán theo trục toàn cục $X, Y$ (bắt buộc dùng hệ vector cục bộ $U, N, Z$).
+   - Không nuốt lỗi (phải log cảnh báo và cô lập lỗi từng cửa, không làm crash cả lệnh).
+   - Không thay đổi 5 group gốc: `NAUQ_CAD_ORIGINAL`, `NAUQ_WALLS`, `NAUQ_DOORS`, `NAUQ_WINDOWS`, `NAUQ_SLAB`.
+2. **Quy chuẩn đơn vị:**
+   - Input/UI luôn là Milimét (mm), SketchUp nội bộ là Inch $\rightarrow$ Luôn đổi qua `GeometryHelper`.
+   - Dung sai: Snap đỉnh `10mm`, sai số mặt phẳng `5mm`, góc song song `0.001 rad`.
+3. **Chuẩn kiểm tra RuboCop-SketchUp (Extension Warehouse):**
+   - Tên Undo $\le 25$ ký tự, Title Case.
+   - Tool vẽ preview bắt buộc có `getExtents`, `suspend`, `deactivate` (`view.invalidate`).
+   - Xử lý mã hóa UTF-8 cho đường dẫn file (`.dup.force_encoding('UTF-8')`).
+   - Không dùng `puts` trực tiếp (chỉ in log console qua `debug_puts` khi bật `DEBUG_MODE`).

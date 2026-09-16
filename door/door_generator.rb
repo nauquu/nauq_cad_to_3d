@@ -79,28 +79,59 @@ module NAUQ
           door.name = door_name
 
           # 5. Build FRAME
+          corner_radius = options[:corner_radius]
           FrameBuilder.build_frame(
             door,
             width,
             height,
-            options.merge(material: frame_mat, is_window: false, x_offset: x_offset)
+            options.merge(material: frame_mat, is_window: false, x_offset: x_offset, corner_radius: corner_radius)
           )
 
-          # 6. Get or Create Shared LEAF Definition (embeds aluminum frame + GLASS group inside LEAF)
-          definition = LeafBuilder.get_or_create_leaf_definition(
-            model,
-            leaf_width,
-            leaf_height,
-            frame_mat,
-            glass_mat,
-            'Nauq_DOOR_LEAF'
-          )
+          # 6. Create LEAF Definitions (per-panel corner rounding for curved doors)
+          no_top_fix = !layout[:top_fix]
+          fw = layout[:frame_width] || 60.0.mm
+          raw_r = corner_radius ? corner_radius.to_f : 0.0
+          frame_r = raw_r > 0 ? [raw_r, (width / 2.0), (height - 100.mm.to_f)].min : 0.0
+          inner_corner_r = frame_r > 1.0.mm ? [frame_r - fw, 0.0].max : 0.0
+
+          has_left_leaf_curve = inner_corner_r > 1.0.mm && no_top_fix && !layout[:has_fix_left]
+          has_right_leaf_curve = inner_corner_r > 1.0.mm && no_top_fix && !layout[:has_fix_right]
+
+          leaf_defs = []
+          if (has_left_leaf_curve || has_right_leaf_curve) && panel_count > 1
+            # Multi-panel curved
+            leaf_defs = leaf_specs.each_with_index.map do |_spec, idx|
+              sides = if idx == 0 && has_left_leaf_curve
+                        :left
+                      elsif idx == panel_count - 1 && has_right_leaf_curve
+                        :right
+                      end
+              LeafBuilder.get_or_create_leaf_definition(
+                model, leaf_width, leaf_height, frame_mat, glass_mat,
+                'Nauq_DOOR_LEAF', sides ? inner_corner_r : 0.mm, sides || :both
+              )
+            end
+          else
+            sides = if has_left_leaf_curve && has_right_leaf_curve
+                      :both
+                    elsif has_left_leaf_curve
+                      :left
+                    elsif has_right_leaf_curve
+                      :right
+                    end
+            leaf_corner_r = (panel_count == 1 && sides) ? inner_corner_r : 0.mm
+            shared_def = LeafBuilder.get_or_create_leaf_definition(
+              model, leaf_width, leaf_height, frame_mat, glass_mat,
+              'Nauq_DOOR_LEAF', leaf_corner_r, sides || :both
+            )
+            leaf_defs = [shared_def] * panel_count
+          end
 
           # 7. Create LEAF Instances (each instance contains frame + its own embedded glass)
           leaf_specs.each_with_index do |spec, index|
             inst = LeafBuilder.create_leaf_instance(
               door,
-              definition,
+              leaf_defs[index],
               index,
               spec[:w],
               exact_x: spec[:x],
@@ -136,7 +167,8 @@ module NAUQ
             fix_bottom_height: layout[:bot_fix] ? layout[:bot_fix][:h] : 0,
             fix_left_width: layout[:left_fix] ? layout[:left_fix][:w] : 0,
             fix_right_width: layout[:right_fix] ? layout[:right_fix][:w] : 0,
-            definition: definition
+            corner_radius: corner_radius,
+            definition: leaf_defs.first
           )
 
           door
@@ -145,7 +177,7 @@ module NAUQ
         private
 
         def normalize_length(val)
-          return val if val.is_a?(Length)
+          return val if (defined?(::Length) && val.is_a?(::Length)) || val.class.name.to_s.end_with?('Length')
           val.respond_to?(:mm) ? val.mm : val.to_f.mm
         end
 
@@ -174,7 +206,11 @@ module NAUQ
           door.set_attribute('Nauq_Door', 'has_fix_right', data[:has_fix_right])
           door.set_attribute('Nauq_Door', 'fix_top_height', data[:fix_top_height].to_mm) if data[:fix_top_height] && data[:has_fix_top]
           door.set_attribute('Nauq_Door', 'fix_top_height_mm', data[:fix_top_height].to_mm) if data[:fix_top_height] && data[:has_fix_top]
-          door.set_attribute('Nauq_Door', 'leaf_component_definition', data[:definition].name)
+          door.set_attribute('Nauq_Door', 'leaf_component_definition', data[:definition].name) if data[:definition].respond_to?(:name)
+          if data[:corner_radius] && data[:corner_radius].to_f > 0
+            door.set_attribute('Nauq_Door', 'corner_radius', data[:corner_radius].to_mm)
+            door.set_attribute('Nauq_Door', 'corner_radius_mm', data[:corner_radius].to_mm)
+          end
 
           if defined?(Attribute)
             tag_data = {
@@ -187,6 +223,10 @@ module NAUQ
               has_fix_left: data[:has_fix_left],
               has_fix_right: data[:has_fix_right]
             }
+            if data[:corner_radius] && data[:corner_radius].to_f > 0
+              tag_data[:corner_radius] = data[:corner_radius].to_mm
+              tag_data[:corner_radius_mm] = data[:corner_radius].to_mm
+            end
             if data[:has_fix_top] && data[:fix_top_height] && data[:fix_top_height] > 0
               tag_data[:fix_top_height] = data[:fix_top_height].to_mm
               tag_data[:fix_top_height_mm] = data[:fix_top_height].to_mm

@@ -1,34 +1,65 @@
 # CHANGELOG — NAUQ CAD TO 3D
 
-Toàn bộ lịch sử các phiên bản, các đợt tái cấu trúc kiến trúc (Refactoring) và sửa lỗi của plugin.
+Full release history, architectural refactoring, and bug fixes.  
+*(Toàn bộ lịch sử các phiên bản, tái cấu trúc kiến trúc và sửa lỗi của plugin)*
+
+## [v1.9.13] - 2026-09-16 (Arched Openings, Duplicate Points Fix, Door Bottom Fix Constraint & Clear Opening Calculations)
+
+### Added
+- **Parametric Arched Doors & Windows (`DoorGenerator`, `WindowBuilder`, `FrameBuilder`, `LeafBuilder`, `GlassBuilder`):**
+  - Added parametric corner rounding (`corner_radius`) for both door and window assemblies.
+  - Outer frame arch extrusion and inner cutout arch profiling using tangent arc interpolation (`arc_points`).
+  - Arched active leaf profiling (FollowMe leaf frame profile and curved leaf glass) when leaves extend into arched openings without a top transom.
+  - Arched top transom and side fix glass panels with tangent corner curves.
+- **Automatic Arch Detection (`OpeningDoorTool`):**
+  - Interactive opening detection automatically senses arched wall opening contours, calculating `corner_radius` directly from wall geometry.
+- **2D SVG Arched Preview (`ResizeToolDialog`):**
+  - SVG preview canvas in the Resize dialog dynamically reflects corner curvature (`corner_radius`) using SVG path arcs for outer frames, active leaves, and fix panels.
+
+### Changed
+- **Door Bottom Fix Constraint (`ResizeToolDialog`):**
+  - Doors do not feature bottom fix panels by architectural standard. In the Resize dialog, the "Fix Dưới" option is permanently disabled, unchecked, and grayed out for doors (`opacity: 0.45; filter: grayscale(1); pointer-events: none;`), while remaining active for windows.
+  - Enforced `has_fix_bottom = false` and `fix_bottom_height = 0.mm` on door resize operations.
+- **Lỗ Ban Clear Opening Calculation Precision (`ResizeToolDialog`):**
+  - Clear opening width ($W_{clear}$) strictly subtracts both left and right fix panels along with their vertical mullions:
+    $$W_{clear} = \max\left(W_{overall} - 2 \cdot \text{fw} - (\text{hasFixL} ? (\text{fixLW} + \text{fw}) : 0) - (\text{hasFixR} ? (\text{fixRW} + \text{fw}) : 0), 0\right)$$
+  - Lỗ Ban suggestion pills (`getNearestGoodClearWidths`) now automatically incorporate the full side fix and mullion deduction into the suggested overall width, allowing single-click application without distorting side fix configurations.
+
+### Fixed
+- **Duplicate Points in Array Exception (`FrameBuilder`, `GlassBuilder`):**
+  - Fixed SketchUp `ArgumentError: Duplicate points in array` when cutting inner frame openings or generating glass panels on asymmetric arch configurations (e.g., top fix combined with right fix).
+  - Added distance threshold check (`> 0.001.mm`) before pushing top-left and top-right contour vertices, plus a deduplication pass (`clean_pts`) and closing vertex check before calling `entities.add_face`.
+- **Decoupled Side Fix Curvature from Top Fix (`FrameBuilder`, `GlassBuilder`):**
+  - Left and right side fix panels curve at outer wall intersections regardless of whether a top fix panel is present.
+  - Top fix panel corners remain square when abutting vertical side mullions, curving only against outer wall boundaries.
 
 ---
 
 ## [v1.9.12] - 2026-09-15 (Fix Dimension Precision, CAD Block Anti-Hardcode & UI Synchronization)
 
 ### Added
-- **Accurate Fix Dimension Measurement (`ResizeToolDialog`):** Thêm hàm `read_fix_dimension` hỗ trợ đọc đa nguồn thuộc tính và đo đạc trực tiếp từ 3D bounding box của các sub-group hình học kính fix (`GLASS_FIX_TOP`, `GLASS_FIX_BOTTOM`, `GLASS_FIX_LEFT`, `GLASS_FIX_RIGHT`, `TRANSOM`).
-- **Proportional 2D SVG Fix Preview (`ResizeToolDialog`):** Khung preview SVG 2D tự động co giãn trực quan các ô fix tỉ lệ theo số mm thực tế người dùng nhập vào.
-- **Dynamic Block Support in UI (`BuildDialog`, `SettingsDialog`):** Bổ sung tùy chọn checkbox và chú thích hướng dẫn cho block cửa động (không bắt buộc nhập tên block khi block là động).
+- **Accurate Fix Dimension Measurement (`ResizeToolDialog`):** Added `read_fix_dimension` supporting multi-source attribute lookup and direct 3D bounds measurement of child geometry groups (`GLASS_FIX_TOP`, `GLASS_FIX_BOTTOM`, `GLASS_FIX_LEFT`, `GLASS_FIX_RIGHT`, `TRANSOM`).
+- **Proportional 2D SVG Fix Preview (`ResizeToolDialog`):** 2D SVG preview canvas dynamically scales fix panel dimensions proportionally to user-entered millimeter inputs.
+- **Dynamic Block Support in UI (`BuildDialog`, `SettingsDialog`):** Added dynamic block checkbox and guidance notes (block name input is optional when using dynamic blocks).
 
 ### Changed
 - **Anti-Hardcode Refactoring (`BlockParser`):**
-  - Xóa bỏ toàn bộ các chuỗi hardcode tên layer (`'0-cua'`, `'nho'`), chuyển sang tôn trọng 100% layer do người dùng chọn ở Build Dialog / Settings.
-  - Chuẩn hóa so khớp layer (`layer_matches?`) theo tên chính xác thay vì `.include?` hai chiều lỏng lẻo.
-  - Xác định trùng layer (`is_shared_layer`) chuẩn xác khi tên layer cửa đi và cửa sổ thực sự trùng khớp.
-  - Nhận diện block cửa động trên layer trùng bằng sự hiện diện của nét cung mở cánh (Arc) tổng quát, không cố định góc 90 độ.
-- **Unit Conversion Hardening (`ResizeToolDialog`):** Cải tiến `read_dimension` và `read_fix_dimension` tự động chuyển đổi an toàn giữa SketchUp `Length`, `Float inch`, và `Float mm`.
-- **UI Balancing & Design System Compliance (`BuildDialog`, `SettingsDialog`):** Đồng bộ hóa padding, input/button styling, tuân thủ nghiêm ngặt quy chuẩn UI phẳng, không emoji/icon trang trí bừa bãi, không dùng gradient màu mè.
+  - Removed all hardcoded layer name fallbacks (`'0-cua'`, `'nho'`), strictly respecting user-selected layers from Build Dialog / Settings.
+  - Standardized layer matching (`layer_matches?`) to exact name equality instead of loose two-way substring matching.
+  - Ensured shared layer detection (`is_shared_layer`) triggers only when door and window layers are explicitly configured with the identical name.
+  - Generalized dynamic door recognition on shared layers by detecting swing path arc entities regardless of arc angle.
+- **Unit Conversion Hardening (`ResizeToolDialog`):** Enhanced `read_dimension` and `read_fix_dimension` to safely convert between SketchUp `Length`, `Float inch`, and `Float mm`.
+- **UI Balancing & Design System Compliance (`BuildDialog`, `SettingsDialog`):** Synchronized section padding, input/button sizing, adhering strictly to clean flat styling without gradient effects or decorative emoji spam.
 
 ### Fixed
-- **Resize Dialog Fix Size Reset Bug (`ResizeToolDialog`, `DoorGenerator`, `FrameBuilder`):** Sửa lỗi khi chọn cửa trong Resize Dialog bị reset kích thước ô fix về 350mm do `FrameBuilder` bỏ qua `opts[:fix_module_height]` và `read_dimension` không nhận diện được đơn vị inch của các thuộc tính fix.
-- **2D CAD Visibility Loss (`DWGReader`):** Khắc phục lỗi ẩn/mất hình học 2D CAD sau khi sinh mô hình 3D.
-- **Camera Auto-Zoom Glitch (`DWGReader`, `PlacementTool`):** Bỏ thao tác tự động zoom extents (Shift+Z) ngoài ý muốn khi import file 2D.
-- **Adjacent Door/Window Wall Collision (`OpeningDetector`, `OpeningNormalizer`):** Sửa lỗi xung đột ranh giới khoét tường khi cửa đi và cửa sổ đặt sát cạnh nhau trên cùng một bức tường.
+- **Resize Dialog Fix Size Reset Bug (`ResizeToolDialog`, `DoorGenerator`, `FrameBuilder`):** Fixed transom/fix height resetting to default 350mm upon selection due to missing `opts[:fix_module_height]` handling in `FrameBuilder` and unhandled inch-to-mm conversions in `read_dimension`.
+- **2D CAD Visibility Loss (`DWGReader`):** Resolved 2D CAD layer visibility disappearing after 3D model generation.
+- **Camera Auto-Zoom Glitch (`DWGReader`, `PlacementTool`):** Removed unwanted automated zoom extents (Shift+Z) triggered during 2D import.
+- **Adjacent Door/Window Wall Collision (`OpeningDetector`, `OpeningNormalizer`):** Fixed wall punch-through and boundary overlap when doors and windows are adjacent along the same wall.
 
 ### Removed
-- **Hardcoded Heuristics Removed:** Xóa luật giả định bậu cửa thấp `< 200mm` tự động ép có ô fix dưới trong `ResizeToolDialog`.
-- **Fuzzy Layer Bypasses Removed:** Xóa bỏ đoạn mã tự động nhận diện cửa qua từ khóa lỏng lẻo `.include?('cua')` / `.include?('door')` khiến đồ nội thất có nét cong (lavabo, bồn tắm) trên các layer khác bị nhận nhầm thành cửa.
+- **Hardcoded Heuristics Removed:** Eliminated the `< 200mm` sill height rule that forcefully assumed a bottom fix in `ResizeToolDialog`.
+- **Fuzzy Layer Bypasses Removed:** Removed loose substring matching (`.include?('cua')`, `.include?('door')`) that falsely recognized curved furniture (bathtubs, sinks) on other layers as doors.
 
 ---
 

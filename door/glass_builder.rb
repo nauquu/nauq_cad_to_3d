@@ -18,7 +18,7 @@ module NAUQ
         # @param z1 [Length, Float]
         # @param material [Sketchup::Material, nil]
         # @return [Sketchup::Group, nil]
-        def build_panel(parent_group, x0, x1, z0, z1, material = nil, name = 'GLASS', y_offset: 0.mm)
+        def build_panel(parent_group, x0, x1, z0, z1, material = nil, name = 'GLASS', y_offset: 0.mm, corner_radius: 0.mm, corner_sides: nil)
           return nil unless x1 > x0 && z1 > z0
 
           target_entities = parent_group.respond_to?(:entities) ? parent_group.entities : parent_group
@@ -29,14 +29,54 @@ module NAUQ
           leaf_center_y = LEAF_DEPTH_OFFSET + (LEAF_DEPTH / 2.0) + y_offset
           glass_y = leaf_center_y - (GLASS_THICKNESS / 2.0)
 
-          points = [
-            Geom::Point3d.new(x0, glass_y, z0),
-            Geom::Point3d.new(x1, glass_y, z0),
-            Geom::Point3d.new(x1, glass_y, z1),
-            Geom::Point3d.new(x0, glass_y, z1)
-          ]
+          r = corner_radius ? corner_radius.to_f : 0.0
+          max_r = corner_sides == :both ? ((x1 - x0) / 2.0) : (x1 - x0)
+          cur_r = (r > 1.0.mm && corner_sides) ? [r, max_r, (z1 - z0) - 10.mm.to_f].min : 0.0
+          round_r = cur_r > 1.0.mm && [:both, :right].include?(corner_sides)
+          round_l = cur_r > 1.0.mm && [:both, :left].include?(corner_sides)
 
-          face = entities.add_face(points)
+          points = []
+          points << Geom::Point3d.new(x0, glass_y, z0)
+          points << Geom::Point3d.new(x1, glass_y, z0)
+
+          if round_r
+            n_segs = 12
+            points << Geom::Point3d.new(x1, glass_y, z1 - cur_r)
+            n_segs.times do |i|
+              ang = (Math::PI / 2.0) * ((i + 1) / n_segs.to_f)
+              px = (x1 - cur_r) + cur_r * Math.cos(ang)
+              pz = (z1 - cur_r) + cur_r * Math.sin(ang)
+              points << Geom::Point3d.new(px, glass_y, pz)
+            end
+          else
+            points << Geom::Point3d.new(x1, glass_y, z1)
+          end
+
+          top_r_x = round_r ? (x1 - cur_r) : x1
+          top_l_x = round_l ? (x0 + cur_r) : x0
+          if top_r_x > top_l_x + 0.001.mm
+            points << Geom::Point3d.new(top_l_x, glass_y, z1)
+          end
+
+          if round_l
+            n_segs = 12
+            n_segs.times do |i|
+              ang = (Math::PI / 2.0) + (Math::PI / 2.0) * ((i + 1) / n_segs.to_f)
+              px = (x0 + cur_r) + cur_r * Math.cos(ang)
+              pz = (z1 - cur_r) + cur_r * Math.sin(ang)
+              points << Geom::Point3d.new(px, glass_y, pz)
+            end
+          else
+            last_pt = points.last
+            tl_pt = Geom::Point3d.new(x0, glass_y, z1)
+            points << tl_pt if !last_pt || last_pt.distance(tl_pt) > 0.001.mm
+          end
+
+          clean_pts = []
+          points.each { |p| clean_pts << p if clean_pts.empty? || clean_pts.last.distance(p) > 0.001.mm }
+          clean_pts.pop if clean_pts.size > 2 && clean_pts.first.distance(clean_pts.last) < 0.001.mm
+
+          face = entities.add_face(clean_pts)
           return nil unless face
 
           face.pushpull(-GLASS_THICKNESS)
@@ -83,10 +123,22 @@ module NAUQ
             glasses << g_act if g_act
           end
 
+          cr = layout[:corner_radius] ? layout[:corner_radius].to_f : 0.0
+          fw = layout[:frame_width] || 60.0.mm
+          inner_r = cr > 1.0.mm ? [cr - fw, 0.0].max : 0.0
+
           # 2. Fix Glasses
           if layout[:top_fix]
             tf = layout[:top_fix]
-            g_tf = build_panel(parent_group, tf[:x0], tf[:x1], tf[:z0], tf[:z1], material, 'GLASS_FIX_TOP')
+            tf_sides = if !layout[:has_fix_left] && !layout[:has_fix_right]
+                         :both
+                       elsif !layout[:has_fix_left]
+                         :left
+                       elsif !layout[:has_fix_right]
+                         :right
+                       end
+            g_tf = build_panel(parent_group, tf[:x0], tf[:x1], tf[:z0], tf[:z1], material, 'GLASS_FIX_TOP',
+                               corner_radius: inner_r, corner_sides: tf_sides)
             glasses << g_tf if g_tf
           end
 
@@ -98,13 +150,17 @@ module NAUQ
 
           if layout[:left_fix]
             lf = layout[:left_fix]
-            g_lf = build_panel(parent_group, lf[:x0], lf[:x1], lf[:z0], lf[:z1], material, 'GLASS_FIX_LEFT')
+            lf_sides = (inner_r > 1.0.mm) ? :left : nil
+            g_lf = build_panel(parent_group, lf[:x0], lf[:x1], lf[:z0], lf[:z1], material, 'GLASS_FIX_LEFT',
+                               corner_radius: inner_r, corner_sides: lf_sides)
             glasses << g_lf if g_lf
           end
 
           if layout[:right_fix]
             rf = layout[:right_fix]
-            g_rf = build_panel(parent_group, rf[:x0], rf[:x1], rf[:z0], rf[:z1], material, 'GLASS_FIX_RIGHT')
+            rf_sides = (inner_r > 1.0.mm) ? :right : nil
+            g_rf = build_panel(parent_group, rf[:x0], rf[:x1], rf[:z0], rf[:z1], material, 'GLASS_FIX_RIGHT',
+                               corner_radius: inner_r, corner_sides: rf_sides)
             glasses << g_rf if g_rf
           end
 

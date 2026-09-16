@@ -1,57 +1,58 @@
 # API CONTRACT & DATA SCHEMAS — NAUQ CAD TO 3D
 
-Tài liệu định nghĩa chi tiết các hàm, tham số đầu vào, kiểu dữ liệu trả về và cấu trúc các bảng băm (Hash Schemas) truyền giữa các module.
+This document specifies function contracts, parameter types, return signatures, and hash data schemas exchanged between internal modules.
 
 ---
 
-## 1. Data Schemas (Cấu trúc dữ liệu chuẩn)
+## 1. Standard Data Schemas
 
-### 1.1 `Segment` Hash (từ `WallDetector`)
+### 1.1 `Segment` Hash (from `WallDetector`)
 ```ruby
 {
-  start_pt: Geom::Point3d,   # Điểm bắt đầu (đã nhân transform thế giới)
-  end_pt:   Geom::Point3d,   # Điểm kết thúc (đã nhân transform thế giới)
-  length_mm: Float,          # Chiều dài đoạn thẳng tính bằng mm
-  edge:     Sketchup::Edge   # Thực thể Edge gốc từ CAD
+  start_pt: Geom::Point3d,   # Start coordinate (transformed to world coordinates)
+  end_pt:   Geom::Point3d,   # End coordinate (transformed to world coordinates)
+  length_mm: Float,          # Segment length in millimeters
+  edge:     Sketchup::Edge   # Originating 2D CAD edge reference
 }
 ```
 
-### 1.2 `Cleaned Pair` Array (từ `WallCleanup`)
+### 1.2 `Cleaned Pair` Array (from `WallCleanup`)
 ```ruby
 [
-  Geom::Point3d, # p1: Điểm đầu sau khi đã snap/cluster
-  Geom::Point3d  # p2: Điểm cuối sau khi đã snap/cluster
+  Geom::Point3d, # p1: Start point after snapping / vertex clustering
+  Geom::Point3d  # p2: End point after snapping / vertex clustering
 ]
 ```
 
-### 1.3 `Wall Face 2D` Hash (từ `WallBuilder.build_wall_reference`)
+### 1.3 `Wall Face 2D` Hash (from `WallBuilder.build_wall_reference`)
 ```ruby
 {
-  face_entity_id: Integer,                 # ID thực thể của Face trong SketchUp
-  points:         Array<Geom::Point3d>,    # Danh sách các đỉnh outer loop
-  origin:         Geom::Point3d,           # Gốc tọa độ cục bộ (đỉnh đầu tiên)
-  u_vector:       Geom::Vector3d,          # Vector đơn vị chỉ hướng dọc tường
-  n_vector:       Geom::Vector3d,          # Vector đơn vị chỉ hướng vuông góc tường (ngang)
-  n_min:          Float,                   # Tọa độ N nhỏ nhất (inch)
-  n_max:          Float,                   # Tọa độ N lớn nhất (inch)
-  base_z:         Float,                   # Cao độ đáy (inch)
-  wall_top:       Float                    # Cao độ đỉnh tường (inch)
+  face_entity_id: Integer,                 # SketchUp Face entity ID
+  points:         Array<Geom::Point3d>,    # Outer loop boundary vertices
+  origin:         Geom::Point3d,           # Local origin (first vertex)
+  u_vector:       Geom::Vector3d,          # Unit vector pointing along wall length
+  n_vector:       Geom::Vector3d,          # Unit normal vector (across wall thickness)
+  n_min:          Float,                   # Minimum transverse offset (inches)
+  n_max:          Float,                   # Maximum transverse offset (inches)
+  base_z:         Float,                   # Base elevation (inches)
+  wall_top:       Float                    # Top elevation (inches)
 }
 ```
 
-### 1.4 `Opening` Hash (từ `OpeningDetector` & `OpeningNormalizer`)
+### 1.4 `Opening` Hash (from `OpeningDetector` & `OpeningNormalizer`)
 ```ruby
 {
-  id:              String,                 # "DOOR_1", "WIN_1", ...
-  type:            Symbol,                 # :door hoặc :window
-  position:        Geom::Point3d,          # Tọa độ tâm đáy opening
-  width_mm:        Float,                  # Chiều rộng mở cửa tính bằng mm
-  height_mm:       Float,                  # Chiều cao cửa tính bằng mm
-  offset_mm:       Float,                  # Cao độ bậu cửa (Window sill) tính bằng mm
-  depth_mm:        Float,                  # Độ dày lòng tường tính bằng mm
-  u_vector:        Geom::Vector3d,         # Vector đơn vị chỉ hướng dọc ngang cửa
-  n_vector:        Geom::Vector3d,         # Vector đơn vị chỉ hướng chiều dày tường
-  source:          Symbol                  # :block hoặc :lines
+  id:               String,                 # e.g., "DOOR_1", "WIN_1"
+  type:             Symbol,                 # :door or :window
+  position:         Geom::Point3d,          # Bottom-center coordinate of the opening
+  width_mm:         Float,                  # Opening width in millimeters
+  height_mm:        Float,                  # Opening height in millimeters
+  offset_mm:        Float,                  # Sill height / bottom elevation offset in millimeters
+  depth_mm:         Float,                  # Wall jamb thickness in millimeters
+  u_vector:         Geom::Vector3d,         # Unit vector aligned with opening width
+  n_vector:         Geom::Vector3d,         # Unit normal vector aligned with wall thickness
+  source:           Symbol,                 # :block or :lines
+  corner_radius_mm: Float                   # Optional top corner rounding radius in millimeters
 }
 ```
 
@@ -84,26 +85,41 @@ Tài liệu định nghĩa chi tiết các hàm, tham số đầu vào, kiểu d
 - `WindowBuilder.build_windows(openings, container, cad_group)` $\rightarrow$ `void`
 
 ### 2.8 `DoorGenerator` / `WindowBuilder` (Parametric 3D Assembly Generators)
-- `DoorGenerator.generate(parent:, name:, width:, height:, panel_count:, is_sliding: false, ...)` $\rightarrow$ `Sketchup::Group`
-- `WindowBuilder.generate(parent:, name:, width:, height:, panel_count:, is_sliding: false, ...)` $\rightarrow$ `Sketchup::Group`
+- `DoorGenerator.generate(parent:, name:, width:, height:, panel_count:, is_sliding: false, corner_radius: 0.mm, ...)` $\rightarrow$ `Sketchup::Group`
+- `WindowBuilder.generate(parent:, name:, width:, height:, panel_count:, is_sliding: false, corner_radius: 0.mm, ...)` $\rightarrow$ `Sketchup::Group`
 
-### 2.9 `LeafBuilder` & `GlassBuilder`
-- `LeafBuilder.get_or_create_leaf_definition(model, leaf_width, leaf_height, frame_material, glass_material, prefix)` $\rightarrow$ `Sketchup::ComponentDefinition`
+### 2.9 `FrameBuilder`, `LeafBuilder` & `GlassBuilder`
+- `FrameBuilder.build(parent_group, width, height, corner_radius: 0.mm, ...)` $\rightarrow$ `Sketchup::Group`
+- `LeafBuilder.get_or_create_leaf_definition(model, leaf_width, leaf_height, frame_material, glass_material, prefix, corner_radius: 0.mm, round_sides: nil)` $\rightarrow$ `Sketchup::ComponentDefinition`
 - `LeafBuilder.create_leaf_instance(parent_group, definition, index, leaf_width, exact_x:, material:)` $\rightarrow$ `Sketchup::ComponentInstance`
-- `GlassBuilder.build_panel(parent_group, x0, x1, z0, z1, material, name, y_offset:)` $\rightarrow$ `Sketchup::Group | nil`
+- `GlassBuilder.build_panel(parent_group, x0, x1, z0, z1, material, name, y_offset:, corner_radius: 0.mm, round_sides: nil)` $\rightarrow$ `Sketchup::Group | nil`
 - `GlassBuilder.build_layout_glasses(parent_group, layout, material, include_active: false)` $\rightarrow$ `Array<Sketchup::Group>`
 
 ### 2.10 `OpeningDoorTool` (Interactive Placement Tool)
 - `OpeningDoorTool#activate` / `deactivate`
-- `OpeningDoorTool#detect_opening_from_context(context)` $\rightarrow$ `Hash | nil` (Opening alignment & coordinate definition)
+- `OpeningDoorTool#detect_opening_from_context(context)` $\rightarrow$ `Hash | nil`
+- `OpeningDoorTool#detect_opening_arch(face, loop_edges)` $\rightarrow$ `Float` (returns corner radius in mm)
 
 ### 2.11 `BlockParser` (CAD Block Collection & Recognition)
 - `collect_blocks(cad_group, block_name = nil, layer_name = nil)` $\rightarrow$ `Array<Hash>`
 - `collect_window_blocks(cad_group, block_name = nil, layer_name = nil)` $\rightarrow$ `Array<Hash>`
 
 ### 2.12 `ResizeToolDialog` (Door/Window Inspection & Resizing)
-- `read_dimension(entity, key)` $\rightarrow$ `Float | nil` (Đọc kích thước với cơ chế giải mã đa đơn vị mm/inch)
-- `read_fix_dimension(entity, direction)` $\rightarrow$ `Float` (Đọc kích thước ô fix từ attributes hoặc đo 3D bounding box)
-- `read_has_fix(entity, direction)` $\rightarrow$ `Boolean` (Xác định ô fix từ attributes hoặc kiểm tra hình học sub-group)
-- `execute_resize(data_hash)` $\rightarrow$ `void` (Cập nhật kích thước cửa và điều chỉnh lỗ mở tường tương ứng)
+- `read_dimension(entity, key)` $\rightarrow$ `Float | nil` (Decodes attributes with multi-unit mm/inch auto-conversion)
+- `read_fix_dimension(entity, direction)` $\rightarrow$ `Float` (Reads fix panel dimensions from attributes or 3D bounding boxes)
+- `read_has_fix(entity, direction)` $\rightarrow$ `Boolean` (Determines fix existence via attributes or sub-group inspection)
+- `execute_resize(data_hash)` $\rightarrow$ `void` (Updates door dimensions and synchronizes corresponding wall opening)
 
+---
+
+## Tóm tắt tiếng Việt (Vietnamese Summary)
+
+### Cấu trúc dữ liệu & Hợp đồng module
+1. **Dữ liệu chuẩn:**
+   - `Segment`: Đoạn thẳng trích từ CAD kèm tọa độ thực và độ dài tính bằng mm.
+   - `Cleaned Pair`: Cặp điểm sau khi đã snap đỉnh và làm sạch nét thừa/trùng lặp.
+   - `Wall Face 2D`: Tiết diện mặt tường 2D kèm hệ vector cục bộ $U$ (dọc tường), $N$ (bề dày), $Z$ (chiều cao).
+   - `Opening`: Thông số lỗ mở tường ($W \times H \times D$, cao độ bậu cửa, vector hướng).
+2. **Quy ước chữ ký hàm chính:**
+   - Toàn bộ tham số kích thước đầu vào và trả về cho người dùng/UI đều tính bằng **mm**.
+   - `ResizeToolDialog`: Cung cấp bộ 3 hàm `read_dimension`, `read_fix_dimension`, `read_has_fix` giải mã thông minh đơn vị và đo trực tiếp từ 3D bounding box khi thuộc tính bị thiếu.

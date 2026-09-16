@@ -16,10 +16,13 @@ module NAUQ
         door_2
         door_4
         door_sliding
+        door_arch
+        door_arch_2
         window_1
         window_2
         window_4
         window_sliding
+        window_arch
         fix_glass
       ].freeze
 
@@ -109,10 +112,13 @@ module NAUQ
         when :door_2 then 'Cửa đi 2 cánh'
         when :door_4 then 'Cửa đi 4 cánh'
         when :door_sliding then 'Cửa đi lùa (trượt 2 cánh)'
+        when :door_arch then 'Cửa đi vòm 1 cánh (Roman Arch)'
+        when :door_arch_2 then 'Cửa đi vòm 2 cánh (Roman Arch)'
         when :window_1 then 'Cửa sổ 1 cánh'
         when :window_2 then 'Cửa sổ 2 cánh'
         when :window_4 then 'Cửa sổ 4 cánh'
         when :window_sliding then 'Cửa sổ lùa (trượt 2 cánh)'
+        when :window_arch then 'Cửa sổ vòm (Roman Arch)'
         when :fix_glass then 'Vách kính cố định'
         end
       end
@@ -155,24 +161,58 @@ module NAUQ
           p1 = org.offset(xv, w)
           p2 = p1.offset(zv, h)
           p3 = p0.offset(zv, h)
-          front_quad = [p0, p1, p2, p3]
 
           b0 = p0.offset(yv, d)
           b1 = p1.offset(yv, d)
           b2 = p2.offset(yv, d)
           b3 = p3.offset(yv, d)
-          back_quad = [b0, b1, b2, b3]
+
+          cr = op[:corner_radius_len]
+          selected_type = ITEM_TYPES[@type_index]
+          if %i[door_arch door_arch_2 window_arch].include?(selected_type)
+            cr = (cr && cr > 1.0.mm) ? cr : (w / 2.0)
+          end
+          front_loop = []
+          if cr && cr > 1.0.mm
+            r = [cr, w / 2.0, h - 100.mm].min
+            n_segs = 10
+            front_loop << p0
+            front_loop << p1
+            front_loop << p1.offset(zv, h - r)
+            # Top-Right arc
+            n_segs.times do |i|
+              ang = (Math::PI / 2.0) * ((i + 1) / n_segs.to_f)
+              c_tr = p1.offset(xv, -r).offset(zv, h - r)
+              pt = c_tr.offset(xv, r * Math.cos(ang)).offset(zv, r * Math.sin(ang))
+              front_loop << pt
+            end
+            if (w - r) > r + 0.001.mm
+              front_loop << p0.offset(xv, r).offset(zv, h)
+            end
+            # Top-Left arc
+            n_segs.times do |i|
+              ang = (Math::PI / 2.0) + (Math::PI / 2.0) * ((i + 1) / n_segs.to_f)
+              c_tl = p0.offset(xv, r).offset(zv, h - r)
+              pt = c_tl.offset(xv, r * Math.cos(ang)).offset(zv, r * Math.sin(ang))
+              front_loop << pt
+            end
+            front_loop << p0
+          else
+            front_loop = [p0, p1, p2, p3]
+          end
+
+          back_loop = front_loop.map { |pt| pt.offset(yv, d) }
 
           # Semi-transparent face fill
           view.drawing_color = COLOR_HIGHLIGHT_FILL
-          view.draw(GL_QUADS, front_quad)
-          view.draw(GL_QUADS, back_quad)
+          view.draw(GL_POLYGON, front_loop)
+          view.draw(GL_POLYGON, back_loop)
 
           # Crisp wireframe outlines
           view.drawing_color = COLOR_HIGHLIGHT_EDGE
           view.line_width = 3
-          view.draw(GL_LINE_LOOP, front_quad)
-          view.draw(GL_LINE_LOOP, back_quad)
+          view.draw(GL_LINE_LOOP, front_loop)
+          view.draw(GL_LINE_LOOP, back_loop)
           view.draw(GL_LINES, [p0, b0, p1, b1, p2, b2, p3, b3])
         end
 
@@ -206,10 +246,13 @@ module NAUQ
                   when :door_2 then 'Cửa đi 2 cánh mở quay'
                   when :door_4 then 'Cửa đi 4 cánh mở quay'
                   when :door_sliding then 'Cửa đi lùa (trượt 2 cánh)'
+                  when :door_arch then 'Cửa đi vòm 1 cánh (Roman Arch)'
+                  when :door_arch_2 then 'Cửa đi vòm 2 cánh (Roman Arch)'
                   when :window_1 then 'Cửa sổ 1 cánh mở quay'
                   when :window_2 then 'Cửa sổ 2 cánh mở quay'
                   when :window_4 then 'Cửa sổ 4 cánh mở quay'
                   when :window_sliding then 'Cửa sổ lùa (trượt 2 cánh)'
+                  when :window_arch then 'Cửa sổ vòm (Roman Arch)'
                   when :fix_glass then 'Vách kính cố định'
                   end
           item = style_sub.add_item(label) do
@@ -614,16 +657,36 @@ module NAUQ
 
       # Construct exact 3D coordinate system for door alignment (perfectly flush with exterior face)
       def construct_opening_definition(f_src, tr_src, f_tgt, tr_tgt, forward_normal, width, overlap)
-        src_bb = f_src.bounds
-        src_pts = [src_bb.min, src_bb.max].map { |p| tr_src * p }
-        z_min = [src_pts[0].z, src_pts[1].z].min
-        z_max = [src_pts[0].z, src_pts[1].z].max
+        src_pts = (f_src.valid? ? f_src.vertices.map { |v| tr_src * v.position } : []) rescue []
+        tgt_pts = (f_tgt.valid? ? f_tgt.vertices.map { |v| tr_tgt * v.position } : []) rescue []
 
-        tgt_bb = f_tgt.bounds
-        tgt_pts = [tgt_bb.min, tgt_bb.max].map { |p| tr_tgt * p }
-        z_min = [z_min, tgt_pts[0].z, tgt_pts[1].z].min
-        z_max = [z_max, tgt_pts[0].z, tgt_pts[1].z].max
-        height = [z_max - z_min, 1000.0.mm].max
+        src_min_z = src_pts.map(&:z).min || 0.0
+        tgt_min_z = tgt_pts.map(&:z).min || 0.0
+        z_min = [src_min_z, tgt_min_z].min
+
+        src_max_z = src_pts.map(&:z).max || 0.0
+        tgt_max_z = tgt_pts.map(&:z).max || 0.0
+
+        # The spring line (where straight vertical jambs meet the arch) is the LOWER of the two jamb heights
+        # (in case one jamb face was modeled continuous with the curved arch soffit).
+        z_spring = [src_max_z, tgt_max_z].min
+        initial_apex_z = [src_max_z, tgt_max_z].max
+
+        corner_r_len, true_z_max = detect_opening_curvature_and_top_z(
+          f_src, tr_src, f_tgt, tr_tgt, forward_normal, width, z_min, z_spring, initial_apex_z
+        )
+
+        # Fallback for explicit arch item selection ONLY when opening has no arch at all
+        selected_type = ITEM_TYPES[@type_index]
+        if %i[door_arch door_arch_2 window_arch].include?(selected_type)
+          if corner_r_len <= 1.0.mm || true_z_max <= z_spring + 1.0.mm
+            corner_r_len = width / 2.0
+            true_z_max = z_spring + corner_r_len
+          end
+        end
+
+        height = [true_z_max - z_min, 1000.0.mm].max
+        corner_r_mm = corner_r_len > 0 ? corner_r_len.to_mm.round(0) : 0.0
 
         # Lateral vector (across the wall thickness)
         up_vec = Geom::Vector3d.new(0, 0, 1)
@@ -659,7 +722,7 @@ module NAUQ
         is_window_auto = z_min > 500.0.mm # Higher off ground is recognized as window
 
         glass_h = (Config.get(:glass_height) || 350.0).to_f
-        has_transom = glass_h > 0 && (height.to_mm > 2400.0)
+        has_transom = corner_r_mm <= 0 && glass_h > 0 && (height.to_mm > 2400.0)
 
         {
           origin: origin,
@@ -670,12 +733,162 @@ module NAUQ
           height_len: height,
           width_mm: width.to_mm,
           height_mm: height.to_mm,
+          corner_radius: corner_r_mm,
+          corner_radius_len: corner_r_len,
           is_window_auto: is_window_auto,
           has_transom: has_transom,
           glass_height_mm: glass_h,
           has_bottom_fix: false,
           fix_bottom_height_mm: 0.0
         }
+      end
+
+      # Detects opening curvature, corner fillet radius, and the true top height of the opening (lintel soffit)
+      # @return [Array<Length, Length>] [detected_corner_radius_len, true_z_max]
+      def detect_opening_curvature_and_top_z(f_src, tr_src, f_tgt, tr_tgt, forward_normal, width, z_min, z_spring, initial_apex_z = z_spring)
+        half_w = width / 2.0
+        model = Sketchup.active_model
+        up_vec = Geom::Vector3d.new(0, 0, 1)
+        u_width = forward_normal.normalize
+
+        pts_src = (f_src.valid? ? f_src.vertices.map { |v| tr_src * v.position } : []) rescue []
+        pts_tgt = (f_tgt.valid? ? f_tgt.vertices.map { |v| tr_tgt * v.position } : []) rescue []
+
+        mid_x = if !pts_src.empty? && !pts_tgt.empty?
+                  (pts_src.map(&:x).sum / pts_src.size + pts_tgt.map(&:x).sum / pts_tgt.size) / 2.0
+                else
+                  0.0
+                end
+        mid_y = if !pts_src.empty? && !pts_tgt.empty?
+                  (pts_src.map(&:y).sum / pts_src.size + pts_tgt.map(&:y).sum / pts_tgt.size) / 2.0
+                else
+                  0.0
+                end
+        mid_pt = Geom::Point3d.new(mid_x, mid_y, z_spring - 50.0.mm)
+
+        detected_r = 0.0.mm
+        detected_top_z = [initial_apex_z, z_spring].max
+
+        # 1. Direct Topological Edge Traversal & ArcCurve search from top of jambs
+        top_vertices = []
+        [[f_src, tr_src], [f_tgt, tr_tgt]].each do |face, tr|
+          next unless face && face.valid?
+          face.vertices.each do |v|
+            vw = tr * v.position
+            top_vertices << [v, tr, vw] if vw.z >= z_spring - 30.0.mm
+          end
+        end
+
+        visited_vertices = {}
+        queue = []
+        top_vertices.each do |v, tr, _vw|
+          visited_vertices[v] = true
+          queue << [v, tr]
+        end
+
+        max_traverse_z = detected_top_z
+        while !queue.empty?
+          cur_v, tr = queue.shift
+          cur_v.edges.each do |e|
+            # Check ArcCurve on any connected edge
+            if e.curve && e.curve.is_a?(Sketchup::ArcCurve)
+              arc = e.curve
+              r = arc.radius
+              if r >= 15.0.mm
+                c_world = tr * arc.center rescue nil
+                apex_z = c_world ? (c_world.z + r) : (z_spring + r)
+                if apex_z > z_spring + 10.0.mm
+                  detected_top_z = [detected_top_z, apex_z].max
+                  detected_r = [detected_r, r].max
+                end
+              end
+            end
+
+            ov = e.other_vertex(cur_v)
+            next if visited_vertices[ov]
+
+            ov_world = tr * ov.position rescue nil
+            next unless ov_world
+
+            # Check if ov stays within opening lateral zone and height bounds
+            dist_lat = ((ov_world.x - mid_pt.x) * u_width.x + (ov_world.y - mid_pt.y) * u_width.y).abs
+            if ov_world.z >= z_spring - 30.0.mm &&
+               ov_world.z <= z_spring + width * 1.5 &&
+               dist_lat <= half_w + 80.0.mm
+              visited_vertices[ov] = true
+              queue << [ov, tr]
+              max_traverse_z = [max_traverse_z, ov_world.z].max
+            end
+          end
+        end
+
+        detected_top_z = [detected_top_z, max_traverse_z].max
+
+        # 2. Multi-ray sampling straight UP (+Z) from opening cavity
+        ray_hits = []
+        [-0.5, -0.25, 0.0, 0.25, 0.5].each do |ratio|
+          ray_origin = mid_pt.offset(u_width, half_w * ratio)
+          res = model.raytest([ray_origin, up_vec])
+          if res && res[0]
+            hit_pt = res[0]
+            hit_z = hit_pt.z
+            if hit_z > z_spring + 15.0.mm && hit_z <= z_spring + width * 1.5
+              ray_hits << hit_z
+            end
+          end
+        end
+
+        if !ray_hits.empty?
+          max_ray_z = ray_hits.max
+          detected_top_z = [detected_top_z, max_ray_z].max
+        end
+
+        # 3. Scan container definitions for ArcCurve entities near opening
+        if detected_r < 15.0.mm
+          scan_parents = []
+          scan_parents << [f_src.parent, tr_src] if f_src.respond_to?(:parent) && f_src.parent.respond_to?(:entities)
+          scan_parents << [f_tgt.parent, tr_tgt] if f_tgt.respond_to?(:parent) && f_tgt.parent.respond_to?(:entities)
+          scan_parents.uniq { |p, _| p }.each do |parent_ent, tr|
+            parent_ent.entities.grep(Sketchup::Edge).each do |e|
+              next unless e.curve && e.curve.is_a?(Sketchup::ArcCurve)
+              arc = e.curve
+              r = arc.radius
+              next if r < 15.0.mm
+              c_pt = tr * arc.center rescue nil
+              next unless c_pt
+              apex_z = c_pt.z + r
+              next unless apex_z > z_spring + 10.0.mm && (c_pt.z - z_spring).abs <= 100.0.mm
+              dist_w = ((c_pt.x - mid_pt.x) * u_width.x + (c_pt.y - mid_pt.y) * u_width.y).abs
+              next if dist_w > half_w + 80.0.mm
+
+              detected_top_z = [detected_top_z, apex_z].max
+              detected_r = [detected_r, r].max
+            end
+          end
+        end
+
+        # 4. Compute curvature from arch rise
+        arch_rise = [detected_top_z - z_spring, 0.0.mm].max
+        if arch_rise > 10.0.mm
+          if detected_r < 10.0.mm
+            detected_r = [arch_rise, half_w].min
+          else
+            detected_r = [detected_r, half_w].min
+          end
+          if (arch_rise - half_w).abs <= 40.0.mm
+            detected_r = half_w
+            detected_top_z = z_spring + half_w
+          end
+        else
+          detected_r = 0.0.mm
+          detected_top_z = z_spring
+        end
+
+        true_z_max = detected_top_z
+        [detected_r, true_z_max]
+      rescue StandardError => e
+        Logger.warn("Lỗi nhận diện vòm opening: #{e.message}") if defined?(Logger)
+        [0.0.mm, z_spring]
       end
 
       def calculate_face_overlap(f_src, tr_src, f_tgt, tr_tgt, normal)
@@ -709,8 +922,8 @@ module NAUQ
       def decide_is_window(op)
         selected_type = ITEM_TYPES[@type_index]
         case selected_type
-        when :window_1, :window_2, :window_4, :window_sliding then true
-        when :door_1, :door_2, :door_4, :door_sliding, :fix_glass then false
+        when :window_1, :window_2, :window_4, :window_sliding, :window_arch then true
+        when :door_1, :door_2, :door_4, :door_sliding, :door_arch, :door_arch_2, :fix_glass then false
         else
           op[:is_window_auto]
         end
@@ -719,8 +932,8 @@ module NAUQ
       def resolve_panel_count(op)
         selected_type = ITEM_TYPES[@type_index]
         case selected_type
-        when :door_1, :window_1, :fix_glass then 1
-        when :door_2, :window_2, :door_sliding, :window_sliding then 2
+        when :door_1, :door_arch, :window_1, :window_arch, :fix_glass then 1
+        when :door_2, :door_arch_2, :window_2, :door_sliding, :window_sliding then 2
         when :door_4, :window_4 then 4
         else # :auto
           w = op[:width_mm]
@@ -748,6 +961,13 @@ module NAUQ
         selected_type = ITEM_TYPES[@type_index]
         is_sliding = selected_type.to_s.include?('sliding')
 
+        cr_len = op[:corner_radius_len]
+        if %i[door_arch door_arch_2 window_arch].include?(selected_type)
+          default_r = op[:width_len] / 2.0
+          cr_len = (cr_len && cr_len > 1.0.mm) ? cr_len : default_r
+        end
+        cr_mm = cr_len ? cr_len.to_mm.round(0) : 0.0
+
         assembly = if is_win
                      # Build WINDOW directly as an independent assembly
                      WindowBuilder.generate(
@@ -760,7 +980,8 @@ module NAUQ
                        has_fix_top: op[:has_transom],
                        fix_top_height: op[:glass_height_mm].to_f.mm,
                        has_fix_bottom: op[:has_bottom_fix],
-                       fix_bottom_height: op[:fix_bottom_height_mm].to_f.mm
+                       fix_bottom_height: op[:fix_bottom_height_mm].to_f.mm,
+                       corner_radius: cr_len
                      )
                    else
                      # Build DOOR directly as an independent assembly
@@ -772,7 +993,8 @@ module NAUQ
                        panel_count: panel_count,
                        is_sliding: is_sliding,
                        has_fix_top: op[:has_transom],
-                       fix_module_height: op[:glass_height_mm].to_f.mm
+                       fix_module_height: op[:glass_height_mm].to_f.mm,
+                       corner_radius: cr_len
                      )
                    end
 
@@ -794,7 +1016,8 @@ module NAUQ
           width: w_mm,
           height: h_mm,
           panel_count: panel_count,
-          type: is_win ? 'window' : 'door'
+          type: is_win ? 'window' : 'door',
+          corner_radius: cr_mm
         )
 
         assembly

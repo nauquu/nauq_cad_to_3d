@@ -16,10 +16,10 @@ module NAUQ
         def generate(options = {})
           model = Sketchup.active_model
 
-          width = options[:width] ? (options[:width].is_a?(Length) ? options[:width] : options[:width].to_f.mm) : 900.mm
-          height = options[:height] ? (options[:height].is_a?(Length) ? options[:height] : options[:height].to_f.mm) : 1200.mm
+          width = options[:width] ? ((defined?(::Length) && options[:width].is_a?(::Length)) ? options[:width] : options[:width].to_f.mm) : 900.mm
+          height = options[:height] ? ((defined?(::Length) && options[:height].is_a?(::Length)) ? options[:height] : options[:height].to_f.mm) : 1200.mm
           panel_count = [options[:panel_count] || 1, 1].max
-          x_offset = options[:x_offset] ? (options[:x_offset].is_a?(Length) ? options[:x_offset] : options[:x_offset].to_f.mm) : 0.mm
+          x_offset = options[:x_offset] ? ((defined?(::Length) && options[:x_offset].is_a?(::Length)) ? options[:x_offset] : options[:x_offset].to_f.mm) : 0.mm
           win_name = (options[:name] || "WINDOW_#{panel_count}P").to_s
 
           parent = options[:parent] || model.active_entities
@@ -63,28 +63,64 @@ module NAUQ
           win_assembly.name = win_name
 
           # 1. Build FRAME
+          corner_radius = options[:corner_radius]
           FrameBuilder.build_frame(
             win_assembly,
             width,
             height,
-            options.merge(material: frame_mat, is_window: true, x_offset: x_offset)
+            options.merge(material: frame_mat, is_window: true, x_offset: x_offset, corner_radius: corner_radius)
           )
 
           # 2. Get or create LEAF Definition (embeds aluminum frame + GLASS group inside LEAF)
-          definition = LeafBuilder.get_or_create_leaf_definition(
-            model,
-            leaf_width,
-            leaf_height,
-            frame_mat,
-            glass_mat,
-            'NAUQ_WIN_LEAF'
-          )
+          no_top_fix = !layout[:top_fix]
+          fw = layout[:frame_width] || 60.0.mm
+          raw_r = corner_radius ? corner_radius.to_f : 0.0
+          frame_r = raw_r > 0 ? [raw_r, (width / 2.0), (height - 100.mm.to_f)].min : 0.0
+          inner_corner_r = frame_r > 1.0.mm ? [frame_r - fw, 0.0].max : 0.0
+
+          has_left_leaf_curve = inner_corner_r > 1.0.mm && no_top_fix && !layout[:has_fix_left]
+          has_right_leaf_curve = inner_corner_r > 1.0.mm && no_top_fix && !layout[:has_fix_right]
+
+          leaf_defs = []
+          if (has_left_leaf_curve || has_right_leaf_curve) && panel_count > 1
+            leaf_defs = leaf_specs.each_with_index.map do |_spec, idx|
+              sides = if idx == 0 && has_left_leaf_curve
+                        :left
+                      elsif idx == panel_count - 1 && has_right_leaf_curve
+                        :right
+                      end
+              LeafBuilder.get_or_create_leaf_definition(
+                model, leaf_width, leaf_height, frame_mat, glass_mat,
+                'NAUQ_WIN_LEAF', sides ? inner_corner_r : 0.mm, sides || :both
+              )
+            end
+          else
+            sides = if has_left_leaf_curve && has_right_leaf_curve
+                      :both
+                    elsif has_left_leaf_curve
+                      :left
+                    elsif has_right_leaf_curve
+                      :right
+                    end
+            leaf_corner_r = (panel_count == 1 && sides) ? inner_corner_r : 0.mm
+            shared_def = LeafBuilder.get_or_create_leaf_definition(
+              model,
+              leaf_width,
+              leaf_height,
+              frame_mat,
+              glass_mat,
+              'NAUQ_WIN_LEAF',
+              leaf_corner_r,
+              sides || :both
+            )
+            leaf_defs = [shared_def] * panel_count
+          end
 
           # 3. Create LEAF Instances (each instance contains frame + its own embedded glass)
           leaf_specs.each_with_index do |spec, index|
             inst = LeafBuilder.create_leaf_instance(
               win_assembly,
-              definition,
+              leaf_defs[index],
               index,
               spec[:w],
               exact_x: spec[:x],

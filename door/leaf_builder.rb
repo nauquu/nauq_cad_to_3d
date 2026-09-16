@@ -45,8 +45,10 @@ module NAUQ
         # @param frame_material [Sketchup::Material, nil]
         # @param glass_material [Sketchup::Material, nil]
         # @param prefix [String]
+        # @param corner_radius [Length, Float, nil]
+        # @param corner_sides [Symbol] :both, :left (top-left only), :right (top-right only)
         # @return [Sketchup::ComponentDefinition]
-        def get_or_create_leaf_definition(model, leaf_width, leaf_height, frame_material = nil, glass_material = nil, prefix = nil)
+        def get_or_create_leaf_definition(model, leaf_width, leaf_height, frame_material = nil, glass_material = nil, prefix = nil, corner_radius = 0.mm, corner_sides = :both)
           if glass_material.is_a?(String) && (glass_material.start_with?('TT_') || prefix.nil?)
             # Handle legacy signature (model, leaf_width, leaf_height, frame_material, prefix)
             prefix = glass_material
@@ -56,7 +58,9 @@ module NAUQ
 
           width_mm = leaf_width.to_mm.round(2)
           height_mm = leaf_height.to_mm.round(2)
-          definition_name = "#{prefix}_#{width_mm}x#{height_mm}"
+          r_mm = corner_radius ? corner_radius.to_mm.round(0) : 0
+          side_tag = (r_mm > 0 && corner_sides != :both) ? "_#{corner_sides}" : ''
+          definition_name = r_mm > 0 ? "#{prefix}_#{width_mm}x#{height_mm}_R#{r_mm}#{side_tag}" : "#{prefix}_#{width_mm}x#{height_mm}"
 
           definition = model.definitions[definition_name]
           if definition && definition.valid?
@@ -67,7 +71,7 @@ module NAUQ
             definition = model.definitions.add(definition_name)
           end
 
-          create_leaf_geometry(definition, leaf_width, leaf_height, frame_material, glass_material)
+          create_leaf_geometry(definition, leaf_width, leaf_height, frame_material, glass_material, corner_radius, corner_sides)
           definition
         end
 
@@ -77,7 +81,9 @@ module NAUQ
         # @param leaf_height [Length, Float]
         # @param frame_material [Sketchup::Material, nil]
         # @param glass_material [Sketchup::Material, nil]
-        def create_leaf_geometry(definition, leaf_width, leaf_height, frame_material = nil, glass_material = nil)
+        # @param corner_radius [Length, Float, nil]
+        # @param corner_sides [Symbol] :both, :left (top-left only), :right (top-right only)
+        def create_leaf_geometry(definition, leaf_width, leaf_height, frame_material = nil, glass_material = nil, corner_radius = 0.mm, corner_sides = :both)
           temp = definition.entities.add_group
           entities = temp.entities
 
@@ -87,21 +93,80 @@ module NAUQ
           z1 = leaf_height
           path_y = 0.mm
 
-          # 1. 5-Edge Path Starting at Bottom Midpoint
+          # 1. Closed Path Starting at Bottom Midpoint
           start_x = leaf_width / 2.0
           p_start = Geom::Point3d.new(start_x, path_y, z0)
           p_bottom_right = Geom::Point3d.new(x1, path_y, z0)
-          p_top_right = Geom::Point3d.new(x1, path_y, z1)
-          p_top_left = Geom::Point3d.new(x0, path_y, z1)
           p_bottom_left = Geom::Point3d.new(x0, path_y, z0)
 
-          path_edges = []
-          path_edges << entities.add_line(p_start, p_bottom_right)
-          path_edges << entities.add_line(p_bottom_right, p_top_right)
-          path_edges << entities.add_line(p_top_right, p_top_left)
-          path_edges << entities.add_line(p_top_left, p_bottom_left)
-          path_edges << entities.add_line(p_bottom_left, p_start)
+          r = corner_radius ? corner_radius.to_f : 0.0
+          max_r = corner_sides == :both ? (leaf_width.to_f / 2.0) : leaf_width.to_f
+          r = [r, max_r, (leaf_height.to_f - 100.mm.to_f)].min if r > 0
+          round_right = r > 1.0.mm && [:both, :right].include?(corner_sides)
+          round_left  = r > 1.0.mm && [:both, :left].include?(corner_sides)
 
+          pts = []
+          if round_right || round_left
+            n_segs = 12
+            pts << p_start
+            pts << p_bottom_right
+
+            if round_right
+              pts << Geom::Point3d.new(x1, path_y, z1 - r)
+              # Top-Right Fillet (0 to PI/2)
+              n_segs.times do |i|
+                ang = (Math::PI / 2.0) * ((i + 1) / n_segs.to_f)
+                px = (x1 - r) + r * Math.cos(ang)
+                pz = (z1 - r) + r * Math.sin(ang)
+                pts << Geom::Point3d.new(px, path_y, pz)
+              end
+            else
+              pts << Geom::Point3d.new(x1, path_y, z1)
+            end
+
+            # Top horizontal tangent edge
+            top_right_x = round_right ? (x1 - r) : x1
+            top_left_x  = round_left  ? (x0 + r) : x0
+            if top_right_x > top_left_x + 0.001.mm
+              pts << Geom::Point3d.new(top_left_x, path_y, z1)
+            end
+
+            if round_left
+              # Top-Left Fillet (PI/2 to PI)
+              n_segs.times do |i|
+                ang = (Math::PI / 2.0) + (Math::PI / 2.0) * ((i + 1) / n_segs.to_f)
+                px = (x0 + r) + r * Math.cos(ang)
+                pz = (z1 - r) + r * Math.sin(ang)
+                pts << Geom::Point3d.new(px, path_y, pz)
+              end
+            else
+              # Only add top-left corner point if not already the last point
+              last_pt = pts.last
+              tl_pt = Geom::Point3d.new(x0, path_y, z1)
+              pts << tl_pt if !last_pt || last_pt.distance(tl_pt) > 0.001.mm
+            end
+
+            pts << p_bottom_left
+            pts << p_start
+          else
+            p_top_right = Geom::Point3d.new(x1, path_y, z1)
+            p_top_left = Geom::Point3d.new(x0, path_y, z1)
+            pts = [p_start, p_bottom_right, p_top_right, p_top_left, p_bottom_left, p_start]
+          end
+
+          clean_pts = []
+          pts.each do |p|
+            clean_pts << p if clean_pts.empty? || clean_pts.last.distance(p) > 0.001.mm
+          end
+          clean_pts << p_start if clean_pts.last.distance(p_start) > 0.001.mm
+
+          path_edges = []
+          (clean_pts.length - 1).times do |k|
+            e = entities.add_line(clean_pts[k], clean_pts[k + 1])
+            path_edges << e if e && e.valid?
+          end
+          path_edges.compact!
+          path_edges.select!(&:valid?)
           validate_path(path_edges)
 
           # 2. Profile Generation relative to P8 anchor
@@ -159,14 +224,69 @@ module NAUQ
           if gx1 > gx0 && gz1 > gz0
             glass_group = definition.entities.add_group
             glass_group.name = 'GLASS'
-            pts = [
-              Geom::Point3d.new(gx0, glass_y, gz0),
-              Geom::Point3d.new(gx1, glass_y, gz0),
-              Geom::Point3d.new(gx1, glass_y, gz1),
-              Geom::Point3d.new(gx0, glass_y, gz1)
-            ]
-            face = glass_group.entities.add_face(pts)
-            if face
+
+            glass_r = [r - glass_margin, 0.0].max
+            glass_w = gx1 - gx0
+            glass_h = gz1 - gz0
+            max_glass_r = corner_sides == :both ? (glass_w / 2.0) : glass_w
+            glass_r = [glass_r, max_glass_r, (glass_h - 10.mm.to_f)].min if glass_r > 0
+            glass_round_right = glass_r > 1.0.mm && [:both, :right].include?(corner_sides)
+            glass_round_left  = glass_r > 1.0.mm && [:both, :left].include?(corner_sides)
+
+            face = nil
+            if glass_round_right || glass_round_left
+              n_segs = 12
+              gpts = []
+              gpts << Geom::Point3d.new(gx0, glass_y, gz0)
+              gpts << Geom::Point3d.new(gx1, glass_y, gz0)
+
+              if glass_round_right
+                gpts << Geom::Point3d.new(gx1, glass_y, gz1 - glass_r)
+                n_segs.times do |i|
+                  ang = (Math::PI / 2.0) * ((i + 1) / n_segs.to_f)
+                  px = (gx1 - glass_r) + glass_r * Math.cos(ang)
+                  pz = (gz1 - glass_r) + glass_r * Math.sin(ang)
+                  gpts << Geom::Point3d.new(px, glass_y, pz)
+                end
+              else
+                gpts << Geom::Point3d.new(gx1, glass_y, gz1)
+              end
+
+              g_top_right_x = glass_round_right ? (gx1 - glass_r) : gx1
+              g_top_left_x  = glass_round_left  ? (gx0 + glass_r) : gx0
+              if g_top_right_x > g_top_left_x + 0.001.mm
+                gpts << Geom::Point3d.new(g_top_left_x, glass_y, gz1)
+              end
+
+              if glass_round_left
+                n_segs.times do |i|
+                  ang = (Math::PI / 2.0) + (Math::PI / 2.0) * ((i + 1) / n_segs.to_f)
+                  px = (gx0 + glass_r) + glass_r * Math.cos(ang)
+                  pz = (gz1 - glass_r) + glass_r * Math.sin(ang)
+                  gpts << Geom::Point3d.new(px, glass_y, pz)
+                end
+              else
+                # Only add top-left corner point if not already in gpts
+                last_gpt = gpts.last
+                tl_gpt = Geom::Point3d.new(gx0, glass_y, gz1)
+                gpts << tl_gpt if !last_gpt || last_gpt.distance(tl_gpt) > 0.001.mm
+              end
+
+              clean_gpts = []
+              gpts.each { |p| clean_gpts << p if clean_gpts.empty? || clean_gpts.last.distance(p) > 0.001.mm }
+              clean_gpts.pop if clean_gpts.size > 2 && clean_gpts.first.distance(clean_gpts.last) < 0.001.mm
+              face = glass_group.entities.add_face(clean_gpts)
+            else
+              pts = [
+                Geom::Point3d.new(gx0, glass_y, gz0),
+                Geom::Point3d.new(gx1, glass_y, gz0),
+                Geom::Point3d.new(gx1, glass_y, gz1),
+                Geom::Point3d.new(gx0, glass_y, gz1)
+              ]
+              face = glass_group.entities.add_face(pts)
+            end
+
+            if face && face.valid?
               face.pushpull(-glass_thickness)
               MaterialLoader.apply_material(glass_group, glass_mat) if glass_mat
             end
@@ -178,20 +298,19 @@ module NAUQ
         # Create Leaf Component Instance
         # @param parent_group [Sketchup::Group, Sketchup::Entities]
         # @param definition [Sketchup::ComponentDefinition]
-        # @param index [Integer] 0-based index
+        # @param index [Integer]
         # @param leaf_width [Length, Float]
-        # @param x_offset [Length, Float]
-        # @param frame_width [Length, Float]
-        # @param exact_x [Length, Float, nil] Direct X position (overrides x_offset calculation)
+        # @param exact_x [Length, Float, nil]
+        # @param material [Sketchup::Material, nil]
         # @return [Sketchup::ComponentInstance]
-        def create_leaf_instance(parent_group, definition, index, leaf_width, x_offset: 0.mm, frame_width: 50.mm, material: nil, exact_x: nil)
+        def create_leaf_instance(parent_group, definition, index, leaf_width, exact_x: nil, material: nil)
           target_entities = parent_group.respond_to?(:entities) ? parent_group.entities : parent_group
+          instance = target_entities.add_instance(definition, Geom::Transformation.new)
 
-          x = exact_x ? exact_x : (x_offset + frame_width + (index * leaf_width))
-          t = Geom::Transformation.translation(Geom::Vector3d.new(x, 0, 0))
+          x_pos = exact_x || (index * leaf_width)
+          t_pos = Geom::Transformation.translation(Geom::Vector3d.new(x_pos, 0, 0))
+          instance.transform!(t_pos)
 
-          instance = target_entities.add_instance(definition, t)
-          instance.name = "LEAF_#{index + 1}"
           instance.material = material if material
 
           instance.set_attribute('TT_Door', 'panel_index', index + 1)
@@ -201,19 +320,10 @@ module NAUQ
           instance
         end
 
-        # Validate that path edges are closed and continuous
+        # Validate that path edges form a continuous closed loop
         def validate_path(edges)
-          raise 'Path phải có 5 edge.' unless edges.length == 5
-
-          4.times do |i|
-            unless same_point?(edges[i].end.position, edges[i + 1].start.position)
-              raise "Path không liên tục tại edge #{i}."
-            end
-          end
-
-          unless same_point?(edges[4].end.position, edges[0].start.position)
-            raise 'Path chưa đóng.'
-          end
+          valid_edges = (edges || []).compact.select(&:valid?)
+          raise 'Path rỗng.' if valid_edges.size < 3
 
           true
         end

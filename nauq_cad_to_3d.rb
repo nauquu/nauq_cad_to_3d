@@ -11,7 +11,7 @@ module NAUQ
   module CadTo3D
     PLUGIN_ID = 'NAUQ_CAD_TO_3D' unless defined?(PLUGIN_ID)
     PLUGIN_NAME = 'NAUQ CAD to 3D' unless defined?(PLUGIN_NAME)
-    PLUGIN_VERSION = '1.9.12' unless defined?(PLUGIN_VERSION)
+    PLUGIN_VERSION = '1.9.13' unless defined?(PLUGIN_VERSION)
 
     # Set to true to print debug messages to the Ruby Console.
     # Extension Warehouse requires extensions to remain silent unless debug
